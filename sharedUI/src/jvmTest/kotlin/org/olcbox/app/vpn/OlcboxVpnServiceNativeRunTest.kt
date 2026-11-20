@@ -161,14 +161,32 @@ class OlcboxVpnServiceNativeRunTest {
     }
 
     @Test
+    fun adaptiveBondStartMeasuresActiveRoomsBeforeStartingTheCore() {
+        val start = member("startMobileBond")
+        val planner = start.indexOf("val activePlan = planAdaptiveBondCore(")
+        val core = start.indexOf("bondCorePlan = activePlan")
+        val ensured = start.indexOf("coroutineContext.ensureActive()", planner)
+
+        assertTrue(planner >= 0, "bond start does not measure its active rooms")
+        assertTrue(core > planner, "the adaptive plan does not reach startCore")
+        assertTrue(ensured > planner, "a cancelled start is not checked after its measurements")
+
+        val coreBody = member("startCore")
+        assertTrue("roomPorts = bondCorePlan.roomPorts" in coreBody)
+        assertTrue("adaptive = bondCorePlan.scheduling" in coreBody)
+        assertTrue("bondBalancedPlan = null" in member("stopMobile"))
+    }
+
+    @Test
     fun bondRebalanceRestoresTheLastWorkingCoreAfterReplacementFailure() {
         val body = member("rebalanceMobileBond")
 
-        assertTrue("val previousPorts = bondBalancedRooms.map(bondRoomPorts::get)" in body)
-        val replacement = body.indexOf("bondRoomPorts = activePorts")
-        val rollback = body.indexOf("bondRoomPorts = previousPorts")
-        assertTrue(replacement >= 0, "rebalance does not try the new active ports")
-        assertTrue(rollback > replacement, "rebalance does not restore the previous working ports after a failure")
+        assertTrue("val previousPlan = bondBalancedPlan" in body)
+        val replacement = body.indexOf("bondCorePlan = activePlan")
+        val rollback = body.indexOf("bondCorePlan = previousPlan")
+        assertEquals(1, Regex("planAdaptiveBondCore\\(").findAll(body).count())
+        assertTrue(replacement >= 0, "rebalance does not try the new adaptive plan")
+        assertTrue(rollback > replacement, "rebalance does not restore the previous working plan after a failure")
         assertTrue("ensureBridge()" in body.substring(rollback), "a restored core on a new port would leave tun2socks on the old one")
     }
 

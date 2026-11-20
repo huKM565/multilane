@@ -79,8 +79,11 @@ import org.olcbox.app.net.AndroidSingBoxController
 import org.olcbox.app.net.AndroidXrayController
 import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.LinkParser
+import org.olcbox.app.net.BondCorePlan
+import org.olcbox.app.net.HttpBondRoomProbe
 import org.olcbox.app.net.LocationKind
 import org.olcbox.app.net.OlcRtcBond
+import org.olcbox.app.net.planAdaptiveBondCore
 import org.olcbox.app.net.planBondPaths
 import org.olcbox.app.net.OlcrtcDirectRules
 import org.olcbox.app.net.OlcrtcDtls
@@ -265,6 +268,7 @@ class OlcboxVpnService : VpnService() {
     private var olcRtcBond: OlcRtcBond? = null
     private var bondRoomPorts: List<Int> = emptyList()
     private var bondBalancedRooms: List<Int> = emptyList()
+    private var bondBalancedPlan: BondCorePlan? = null
     private var bondLocation: LocationConfig? = null
 
     private data class StartOptions(
@@ -1259,13 +1263,13 @@ class OlcboxVpnService : VpnService() {
         setErrorOnFailure: Boolean,
         routing: Routing,
         upstream: Network,
-        bondRoomPorts: List<Int>? = null,
+        bondCorePlan: BondCorePlan? = null,
     ): Boolean {
         val tun = connectionMode == AndroidConnectionMode.Tun
         val port = if (tun) sessionCorePort.acquire() else socksListenPort
         val login = if (tun) SocksLogin.of(socksUsername, socksPassword) else null
         return try {
-            val spec = if (bondRoomPorts == null) {
+            val spec = if (bondCorePlan == null) {
                 val raw = location.rawLink ?: error("core location has no link")
                 LinkParser.parse(raw) ?: error("unparseable core link")
             } else {
@@ -1283,18 +1287,19 @@ class OlcboxVpnService : VpnService() {
             // answers proves nothing about who answers.
             val alive: () -> Boolean
             val fronted = routing is Routing.Rules && connectionMode == AndroidConnectionMode.Tun
-            if (bondRoomPorts != null) {
+            if (bondCorePlan != null) {
                 val bondSpec = spec as? OutboundSpec.Vless ?: error("bond carrier is not VLESS")
                 val xrayPort = freeLoopbackPort()
                 xrayCore.start(
                     XrayConfig.buildVlessBond(
                         bondSpec,
-                        roomPorts = bondRoomPorts,
+                        roomPorts = bondCorePlan.roomPorts,
                         roomUsername = socksUsername,
                         roomPassword = socksPassword,
                         socksPort = xrayPort,
                         verboseLogs = verboseDebugLogs,
                         login = login,
+                        adaptive = bondCorePlan.scheduling,
                     )
                 )
                 singBoxCore.start(
@@ -1526,11 +1531,17 @@ class OlcboxVpnService : VpnService() {
                 return false
             }
             coroutineContext.ensureActive()
-            val activePorts = activeRooms.map(ports::get)
-            if (!startCore(config, setErrorOnFailure, routing, upstream, bondRoomPorts = activePorts)) {
+            val activePlan = planAdaptiveBondCore(
+                activeRooms,
+                ports,
+                HttpBondRoomProbe(socksUsername, socksPassword),
+            )
+            coroutineContext.ensureActive()
+            if (!startCore(config, setErrorOnFailure, routing, upstream, bondCorePlan = activePlan)) {
                 stopMobileAndWait()
                 return false
             }
+            bondBalancedPlan = activePlan
             addLog("olcRTC bond x${activeRooms.size}/${paths.size} ready")
             markRtcConnected()
             if (keepProcessBound) {
@@ -2032,17 +2043,21 @@ class OlcboxVpnService : VpnService() {
 
     private suspend fun rebalanceMobileBond(location: LocationConfig, activeRooms: List<Int>): Boolean {
         val upstream = findActiveUpstreamNetwork() ?: return false
-        val previousPorts = bondBalancedRooms.map(bondRoomPorts::get)
-        val activePorts = activeRooms.map(bondRoomPorts::get)
+        val previousPlan = bondBalancedPlan ?: return false
+        val activePlan = planAdaptiveBondCore(
+            activeRooms,
+            bondRoomPorts,
+            HttpBondRoomProbe(socksUsername, socksPassword),
+        )
         addLog("olcRTC bond rooms changed; rebalancing Xray on ${activeRooms.map { it + 1 }}")
-        if (startCore(location, false, routingFor(upstream), upstream, bondRoomPorts = activePorts)) {
+        if (startCore(location, false, routingFor(upstream), upstream, bondCorePlan = activePlan)) {
             bondBalancedRooms = activeRooms
+            bondBalancedPlan = activePlan
             return true
         }
-        if (previousPorts.isEmpty()) return false
 
         addLog("olcRTC bond rebalance failed; restoring the previous paths")
-        if (!startCore(location, false, routingFor(upstream), upstream, bondRoomPorts = previousPorts)) {
+        if (!startCore(location, false, routingFor(upstream), upstream, bondCorePlan = previousPlan)) {
             addLog("olcRTC bond could not restore the previous paths")
             return false
         }
@@ -2271,6 +2286,7 @@ class OlcboxVpnService : VpnService() {
         olcRtcBond = null
         bondRoomPorts = emptyList()
         bondBalancedRooms = emptyList()
+        bondBalancedPlan = null
         bondLocation = null
         OlcboxVpnState.setBondRooms(null)
         // Also tear down any active sing-box / Xray core (no-op if none running).
