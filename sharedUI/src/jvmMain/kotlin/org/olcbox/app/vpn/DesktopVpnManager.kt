@@ -38,6 +38,9 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationEntry
 import org.olcbox.app.data.model.RoutingMode
 import org.olcbox.app.data.model.RoutingSettings
+import org.olcbox.app.net.BondCorePlan
+import org.olcbox.app.net.HttpBondRoomProbe
+import org.olcbox.app.net.planAdaptiveBondCore
 import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.DesktopChannelProbe
 import org.olcbox.app.net.DesktopSingBoxController
@@ -335,6 +338,7 @@ class DesktopVpnManager private constructor(
     private var desktopOlcRtcBond: DesktopOlcRtcBond? = null
     private var linuxBondSupervisor: LinuxBondSupervisor? = null
     private var desktopBalancedRooms: List<Int> = emptyList()
+    private var desktopBalancedPlan: BondCorePlan? = null
     private val windowsTunCore = org.olcbox.app.net.DesktopSingBoxController(onOutput = ::onWindowsTunOutput)
 
     /** The tun core said the system's filtering engine refused `strict_route`; see [startWindowsTun]. */
@@ -1918,6 +1922,11 @@ class DesktopVpnManager private constructor(
             desktopBalancedRooms = bond.activeIndexes()
             setDesktopBondRooms(desktopBalancedRooms)
 
+            val activePlan = planAdaptiveBondCore(
+                desktopBalancedRooms,
+                bond.rooms.map { it.port },
+                HttpBondRoomProbe(socksSettings.username, socksSettings.password),
+            )
             val spec = LinkParser.parse(config.bondVlessLink!!) as? OutboundSpec.Vless
                 ?: error("bond carrier is not VLESS")
             val xrayPort = allocateBondPort()
@@ -1926,12 +1935,13 @@ class DesktopVpnManager private constructor(
             xrayCore.start(
                 XrayConfig.buildVlessBond(
                     spec,
-                    roomPorts = bond.ports(),
+                    roomPorts = activePlan.roomPorts,
                     roomUsername = socksSettings.username,
                     roomPassword = socksSettings.password,
                     socksPort = xrayPort,
                     verboseLogs = verboseLogs,
                     login = login,
+                    adaptive = activePlan.scheduling,
                 )
             )
             if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
@@ -1952,6 +1962,7 @@ class DesktopVpnManager private constructor(
                 error("bonded sing-box front not ready on $frontPort")
             }
             activeCorePort = frontPort
+            desktopBalancedPlan = activePlan
             addLog("Desktop olcRTC bond x${bond.activeIndexes().size}/${paths.size} ready; sing-box front on 127.0.0.1:$frontPort")
             return frontPort
         } catch (error: Throwable) {
@@ -1977,6 +1988,7 @@ class DesktopVpnManager private constructor(
             } else {
                 desktopBondGeneration++
                 desktopBalancedRooms = emptyList()
+                desktopBalancedPlan = null
                 setDesktopBondRooms(null)
             }
             throw error
@@ -2024,22 +2036,27 @@ class DesktopVpnManager private constructor(
         addLog("Desktop olcRTC bond rooms changed; rebalancing Xray on ${activeRooms.map { it + 1 }}")
         val spec = LinkParser.parse(line.location.bondVlessLink!!) as? OutboundSpec.Vless
             ?: error("bond carrier is not VLESS")
-        val previousRoomPorts = desktopBalancedRooms.map { bond.rooms[it].port }
-        val activeRoomPorts = activeRooms.map { bond.rooms[it].port }
+        val previousPlan = desktopBalancedPlan ?: return false
+        val activePlan = planAdaptiveBondCore(
+            activeRooms,
+            bond.rooms.map { it.port },
+            HttpBondRoomProbe(line.socksSettings.username, line.socksSettings.password),
+        )
         val xrayPort = allocateBondPort()
         val frontPort = line.frontPort ?: line.corePort
         val login = SocksLogin.of(line.socksSettings.username, line.socksSettings.password)
 
-        suspend fun startCores(roomPorts: List<Int>, label: String) {
+        suspend fun startCores(plan: BondCorePlan, label: String) {
             xrayCore.start(
                 XrayConfig.buildVlessBond(
                     spec,
-                    roomPorts = roomPorts,
+                    roomPorts = plan.roomPorts,
                     roomUsername = line.socksSettings.username,
                     roomPassword = line.socksSettings.password,
                     socksPort = xrayPort,
                     verboseLogs = line.verboseLogs,
                     login = login,
+                    adaptive = plan.scheduling,
                 )
             )
             if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
@@ -2064,8 +2081,9 @@ class DesktopVpnManager private constructor(
 
         stopDesktopCores()
         try {
-            startCores(activeRoomPorts, "rebalanced")
+            startCores(activePlan, "rebalanced")
             desktopBalancedRooms = activeRooms
+            desktopBalancedPlan = activePlan
             return true
         } catch (error: CancellationException) {
             stopDesktopCores()
@@ -2075,9 +2093,8 @@ class DesktopVpnManager private constructor(
             stopDesktopCores()
         }
 
-        if (previousRoomPorts.isEmpty()) return false
         return try {
-            startCores(previousRoomPorts, "restored")
+            startCores(previousPlan, "restored")
             addLog("Desktop olcRTC bond restored the previous working paths")
             true
         } catch (error: CancellationException) {
@@ -2108,6 +2125,7 @@ class DesktopVpnManager private constructor(
         val supervisor = linuxBondSupervisor
         desktopOlcRtcBond = null
         desktopBalancedRooms = emptyList()
+        desktopBalancedPlan = null
         setDesktopBondRooms(null)
         if (bond != null) {
             val stopped = runCatching { bond.stop() }.isSuccess
