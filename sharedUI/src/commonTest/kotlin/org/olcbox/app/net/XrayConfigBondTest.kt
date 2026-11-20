@@ -136,6 +136,86 @@ class XrayConfigBondTest {
         )
     }
 
+    @Test fun adaptiveBondUsesCostsAndObservatoryWithoutChangingTransports() {
+        val ports = (21081..21092).toList()
+        val costs = listOf(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 1.0, 1.25, 0.75, 2.25, 3.5)
+        val root = Json.parseToJsonElement(
+            XrayConfig.buildVlessBond(spec, ports, "u", "p", adaptive = BondScheduling(4, costs))
+        ).jsonObject
+        val baseline = Json.parseToJsonElement(
+            XrayConfig.buildVlessBond(spec, ports, "u", "p")
+        ).jsonObject
+
+        assertEquals(baseline["inbounds"], root["inbounds"])
+        assertEquals(baseline["outbounds"], root["outbounds"])
+        assertEquals(null, baseline["observatory"])
+        val balancer = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.single().jsonObject
+        assertEquals("leastLoad", balancer["strategy"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        val settings = balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject
+        assertEquals(4, settings["expected"]!!.jsonPrimitive.content.toInt())
+        assertEquals("2s", settings["maxRTT"]!!.jsonPrimitive.content)
+        assertEquals(0.20, settings["tolerance"]!!.jsonPrimitive.content.toDouble())
+        assertEquals(listOf("500ms"), settings["baselines"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("vless-room-1", balancer["fallbackTag"]!!.jsonPrimitive.content)
+        val costObjects = settings["costs"]!!.jsonArray.map { it.jsonObject }
+        costs.forEachIndexed { index, cost ->
+            assertEquals(false, costObjects[index]["regexp"]!!.jsonPrimitive.content.toBoolean())
+            assertEquals("vless-room-${index + 1}", costObjects[index]["match"]!!.jsonPrimitive.content)
+            assertEquals(cost, costObjects[index]["value"]!!.jsonPrimitive.content.toDouble())
+        }
+        val observatory = root["observatory"]!!.jsonObject
+        assertEquals(
+            (1..12).map { "vless-room-$it" },
+            observatory["subjectSelector"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            "https://connectivitycheck.gstatic.com/generate_204",
+            observatory["probeUrl"]!!.jsonPrimitive.content,
+        )
+        assertEquals("15s", observatory["probeInterval"]!!.jsonPrimitive.content)
+        assertEquals(true, observatory["enableConcurrency"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test fun adaptiveBondKeepsCostsAlignedAfterRoomLoss() {
+        val root = Json.parseToJsonElement(
+            XrayConfig.buildVlessBond(
+                spec,
+                roomPorts = listOf(21081, 21082, 21084),
+                roomUsername = "u",
+                roomPassword = "p",
+                adaptive = BondScheduling(3, listOf(2.0, 0.5, 1.0)),
+            )
+        ).jsonObject
+
+        val balancer = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.single().jsonObject
+        assertEquals(3, balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject["expected"]!!
+            .jsonPrimitive.content.toInt())
+        assertEquals("vless-room-1", balancer["fallbackTag"]!!.jsonPrimitive.content)
+        val costs = balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject["costs"]!!.jsonArray
+        assertEquals(listOf("vless-room-1", "vless-room-2", "vless-room-3"),
+            costs.map { it.jsonObject["match"]!!.jsonPrimitive.content })
+        assertEquals(listOf(2.0, 0.5, 1.0),
+            costs.map { it.jsonObject["value"]!!.jsonPrimitive.content.toDouble() })
+        assertEquals(listOf("vless-room-1", "vless-room-2", "vless-room-3"),
+            root["observatory"]!!.jsonObject["subjectSelector"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test fun adaptiveBondRejectsMismatchedOrInvalidScheduling() {
+        val invalid = listOf(
+            BondScheduling(4, List(3) { 1.0 }),
+            BondScheduling(3, List(4) { 1.0 }),
+            BondScheduling(0, emptyList()),
+        ) + listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, 0.0, -1.0).map { value ->
+            BondScheduling(4, listOf(1.0, value, 1.0, 1.0))
+        }
+
+        invalid.forEach { scheduling ->
+            assertFailsWith<IllegalArgumentException> {
+                XrayConfig.buildVlessBond(spec, (21081..21084).toList(), "u", "p", adaptive = scheduling)
+            }
+        }
+    }
+
     @Test fun vlessBondRejectsEmptyDuplicateOrTooManyPorts() {
         val invalid = listOf(
             emptyList(),

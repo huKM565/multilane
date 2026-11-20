@@ -68,12 +68,18 @@ object XrayConfig {
         socksPort: Int = XRAY_SOCKS_PORT,
         verboseLogs: Boolean = false,
         login: SocksLogin? = null,
+        adaptive: BondScheduling? = null,
     ): String {
         require(roomPorts.size in 1..12 && roomPorts.toSet().size == roomPorts.size) {
             "a VLESS bond requires between one and twelve distinct room ports"
         }
         require(spec.plain && spec.transport == TransportSpec.Tcp) {
             "a VLESS room bond requires a plain TCP VLESS endpoint"
+        }
+        if (adaptive != null) {
+            require(adaptive.expected == minOf(4, roomPorts.size)) { "unexpected adaptive room count" }
+            require(adaptive.costs.size == roomPorts.size) { "adaptive costs must match room ports" }
+            require(adaptive.costs.all { it.isFinite() && it > 0.0 }) { "adaptive costs must be finite and positive" }
         }
         return buildJsonObject {
             putJsonObject("log") { put("loglevel", if (verboseLogs) "debug" else "warning") }
@@ -160,8 +166,40 @@ object XrayConfig {
                         putJsonArray("selector") {
                             roomPorts.indices.forEach { add("vless-room-${it + 1}") }
                         }
-                        putJsonObject("strategy") { put("type", "roundRobin") }
+                        if (adaptive == null) {
+                            putJsonObject("strategy") { put("type", "roundRobin") }
+                        } else {
+                            put("fallbackTag", "vless-room-1")
+                            putJsonObject("strategy") {
+                                put("type", "leastLoad")
+                                putJsonObject("settings") {
+                                    put("expected", adaptive.expected)
+                                    put("maxRTT", "2s")
+                                    put("tolerance", 0.20)
+                                    putJsonArray("baselines") { add("500ms") }
+                                    putJsonArray("costs") {
+                                        adaptive.costs.forEachIndexed { index, cost ->
+                                            addJsonObject {
+                                                put("regexp", false)
+                                                put("match", "vless-room-${index + 1}")
+                                                put("value", cost)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
+            }
+            if (adaptive != null) {
+                putJsonObject("observatory") {
+                    putJsonArray("subjectSelector") {
+                        roomPorts.indices.forEach { add("vless-room-${it + 1}") }
+                    }
+                    put("probeUrl", "https://connectivitycheck.gstatic.com/generate_204")
+                    put("probeInterval", "15s")
+                    put("enableConcurrency", true)
                 }
             }
         }.toString()
