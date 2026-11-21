@@ -81,6 +81,7 @@ import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.LinkParser
 import org.olcbox.app.net.BondCorePlan
 import org.olcbox.app.net.HttpBondRoomProbe
+import org.olcbox.app.net.bondPlanLogLines
 import org.olcbox.app.net.LocationKind
 import org.olcbox.app.net.OlcRtcBond
 import org.olcbox.app.net.planAdaptiveBondCore
@@ -1536,6 +1537,7 @@ class OlcboxVpnService : VpnService() {
                 ports,
                 HttpBondRoomProbe(socksUsername, socksPassword),
             )
+            bondPlanLogLines(activePlan).forEach(::addLog)
             coroutineContext.ensureActive()
             if (!startCore(config, setErrorOnFailure, routing, upstream, bondCorePlan = activePlan)) {
                 stopMobileAndWait()
@@ -2049,6 +2051,7 @@ class OlcboxVpnService : VpnService() {
             bondRoomPorts,
             HttpBondRoomProbe(socksUsername, socksPassword),
         )
+        bondPlanLogLines(activePlan).forEach(::addLog)
         addLog("olcRTC bond rooms changed; rebalancing Xray on ${activeRooms.map { it + 1 }}")
         if (startCore(location, false, routingFor(upstream), upstream, bondCorePlan = activePlan)) {
             bondBalancedRooms = activeRooms

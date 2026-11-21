@@ -130,8 +130,28 @@ class BondSchedulerTest {
 
         val plan = planAdaptiveBondCore(listOf(0, 2), listOf(21081, 21082, 21083), probe)
 
+        assertEquals(listOf(0, 2), plan.roomIndexes)
         assertEquals(listOf(21081, 21083), plan.roomPorts)
+        assertEquals(listOf(0, 2), plan.samples.map { it?.index })
         assertEquals(BondScheduling(2, listOf(1.5, 0.75)), plan.scheduling)
+    }
+
+    @Test
+    fun measurementLogsContainOnlyPublicIndexesAndNumericMetrics() {
+        val plan = BondCorePlan(
+            roomIndexes = listOf(0, 2),
+            roomPorts = listOf(21081, 21083),
+            scheduling = BondScheduling(2, listOf(1.0, 4.0)),
+            samples = listOf(sample(0, 1_000_000.0), null),
+        )
+
+        assertEquals(
+            listOf(
+                "olcRTC bond room 1: RTT 50 ms, 8.0 Mbit/s",
+                "olcRTC bond room 3: measurement failed",
+            ),
+            bondPlanLogLines(plan),
+        )
     }
 
     @Test

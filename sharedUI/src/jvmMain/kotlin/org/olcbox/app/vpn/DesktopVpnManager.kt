@@ -40,6 +40,7 @@ import org.olcbox.app.data.model.RoutingMode
 import org.olcbox.app.data.model.RoutingSettings
 import org.olcbox.app.net.BondCorePlan
 import org.olcbox.app.net.HttpBondRoomProbe
+import org.olcbox.app.net.bondPlanLogLines
 import org.olcbox.app.net.planAdaptiveBondCore
 import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.DesktopChannelProbe
@@ -1927,6 +1928,7 @@ class DesktopVpnManager private constructor(
                 bond.rooms.map { it.port },
                 HttpBondRoomProbe(socksSettings.username, socksSettings.password),
             )
+            bondPlanLogLines(activePlan).forEach(::addLog)
             val spec = LinkParser.parse(config.bondVlessLink!!) as? OutboundSpec.Vless
                 ?: error("bond carrier is not VLESS")
             val xrayPort = allocateBondPort()
@@ -2042,6 +2044,7 @@ class DesktopVpnManager private constructor(
             bond.rooms.map { it.port },
             HttpBondRoomProbe(line.socksSettings.username, line.socksSettings.password),
         )
+        bondPlanLogLines(activePlan).forEach(::addLog)
         val xrayPort = allocateBondPort()
         val frontPort = line.frontPort ?: line.corePort
         val login = SocksLogin.of(line.socksSettings.username, line.socksSettings.password)

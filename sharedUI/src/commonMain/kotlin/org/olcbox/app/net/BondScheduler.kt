@@ -20,9 +20,21 @@ data class BondScheduling(
 )
 
 data class BondCorePlan(
+    val roomIndexes: List<Int>,
     val roomPorts: List<Int>,
     val scheduling: BondScheduling,
+    val samples: List<BondRoomSample?>,
 )
+
+fun bondPlanLogLines(plan: BondCorePlan): List<String> = plan.roomIndexes.mapIndexed { position, roomIndex ->
+    val sample = plan.samples[position]
+    if (sample == null) {
+        "olcRTC bond room ${roomIndex + 1}: measurement failed"
+    } else {
+        val megabitsPerSecond = (sample.bytesPerSecond * 8.0 / 100_000.0).toInt() / 10.0
+        "olcRTC bond room ${roomIndex + 1}: RTT ${sample.latencyMillis} ms, $megabitsPerSecond Mbit/s"
+    }
+}
 
 interface BondRoomProbe {
     suspend fun measure(target: BondRoomTarget): BondRoomSample?
@@ -74,5 +86,5 @@ suspend fun planAdaptiveBondCore(
     require(allPorts.distinct().size == allPorts.size) { "bond ports must be distinct" }
     val targets = activeRooms.map { BondRoomTarget(it, allPorts[it]) }
     val samples = measureBondRooms(targets, probe)
-    return BondCorePlan(targets.map { it.port }, bondScheduling(samples))
+    return BondCorePlan(activeRooms, targets.map { it.port }, bondScheduling(samples), samples)
 }
