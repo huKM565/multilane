@@ -8,12 +8,38 @@ on:
         required: false
         default: '1.0.474'
         type: string
+      attach_run_id:
+        description: 'Existing run ID to attach to GitHub Release without rebuilding'
+        required: false
+        default: ''
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  attach-existing:
+    if: ${{ inputs.attach_run_id != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact from run and attach to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version || '1.0.474' }}"
+          tag="v$version"
+          mkdir -p dist
+          gh run download "${{ inputs.attach_run_id }}" -n MultiLane-windows-amd64 -D dist
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "MultiLane $tag" --notes "MultiLane $tag"
+          gh release upload "$tag" \
+            "dist/MultiLane-$version-windows-amd64.exe" \
+            "dist/MultiLane-$version-windows-amd64.msi" \
+            "dist/MultiLane-$version-windows-amd64-portable.zip" \
+            --clobber
+
   build-windows:
+    if: ${{ inputs.attach_run_id == '' }}
     runs-on: windows-latest
     steps:
       - name: Keep source and resources byte-for-byte
@@ -99,3 +125,18 @@ jobs:
         with:
           name: MultiLane-windows-amd64
           path: multilane/dist/MultiLane-*
+
+      - name: Attach Windows packages directly to GitHub Release
+        shell: pwsh
+        working-directory: multilane
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ inputs.version || '1.0.474' }}"
+          $tag = "v$version"
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "MultiLane $tag" --notes "MultiLane $tag"
+          }
+          gh release upload $tag dist/MultiLane-$version-windows-amd64.exe dist/MultiLane-$version-windows-amd64.msi dist/MultiLane-$version-windows-amd64-portable.zip --clobber
