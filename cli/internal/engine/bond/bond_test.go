@@ -26,7 +26,7 @@ func (f *fakeBondRuntime) SetRoom(string) error                     { return nil
 func (f *fakeBondRuntime) SetKey(string) error                      { return nil }
 func (f *fakeBondRuntime) SetDNS(string) error                      { return nil }
 func (f *fakeBondRuntime) SetSocksListenHost(string) error          { return nil }
-func (f *fakeBondRuntime) SetSocksPort(p int) error                 { f.port = p; return nil }
+func (f *fakeBondRuntime) SetSocksPort(p int) error                 { f.mu.Lock(); f.port = p; f.mu.Unlock(); return nil }
 func (f *fakeBondRuntime) SetSocksCredentials(string, string) error { return nil }
 func (f *fakeBondRuntime) SetUDP(v bool)                            { f.udp = v }
 func (f *fakeBondRuntime) SetDirectRules(string) error              { return nil }
@@ -126,23 +126,23 @@ func TestBondRecoversDeadRoomWithoutRestartingXray(t *testing.T) {
 	victim.mu.Unlock()
 
 	deadline := time.Now().Add(1 * time.Second)
+	var restartedPort int
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		n := len(created)
+		if len(created) >= 5 {
+			last := created[len(created)-1]
+			last.mu.Lock()
+			if last.state == "running" {
+				restartedPort = last.port
+			}
+			last.mu.Unlock()
+		}
 		mu.Unlock()
-		if n >= 5 {
+		if restartedPort != 0 {
 			break
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-
-	mu.Lock()
-	if len(created) < 5 {
-		mu.Unlock()
-		t.Fatalf("expected dead room to be restarted, created=%d", len(created))
-	}
-	restartedPort := created[len(created)-1].port
-	mu.Unlock()
 
 	if restartedPort != victimPort {
 		t.Fatalf("restarted room port = %d, want %d", restartedPort, victimPort)
@@ -152,5 +152,8 @@ func TestBondRecoversDeadRoomWithoutRestartingXray(t *testing.T) {
 	}
 	if bs.State() != "running" {
 		t.Fatalf("state = %s, want running", bs.State())
+	}
+	if up, total := bs.BondRooms(); up != 4 || total != 4 {
+		t.Fatalf("BondRooms() = %d/%d, want 4/4", up, total)
 	}
 }

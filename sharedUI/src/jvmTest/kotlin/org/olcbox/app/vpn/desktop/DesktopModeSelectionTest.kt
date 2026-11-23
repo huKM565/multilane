@@ -53,9 +53,9 @@ class DesktopModeSelectionTest {
     }
 
     @Test
-    fun theWindowsTunnelCarriesEverything() {
+    fun theWindowsTunnelRoutesThroughDaemonConfig() {
         for (olcrtc in listOf(true, false)) {
-            assertEquals(DesktopRulesHome.Nowhere, desktopRulesHome(DesktopMode.WindowsTun, olcrtc, needsRules = true))
+            assertEquals(DesktopRulesHome.Daemon, desktopRulesHome(DesktopMode.WindowsTun, olcrtc, needsRules = true))
         }
     }
 }

@@ -37,31 +37,37 @@ internal object DesktopPaths {
             DesktopOs.MacOS -> home.resolve("Library").resolve("Application Support").resolve("Olcbox")
             DesktopOs.Windows -> {
                 val appData = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }
-                (appData?.let { Path(it) } ?: home.resolve("AppData").resolve("Roaming")).resolve("IlyukhaLine")
+                val root = appData?.let { Path(it) } ?: home.resolve("AppData").resolve("Roaming")
+                root.resolve("MultiLane").also {
+                    migrateApprovedData(listOf(root.resolve("IlyukhaLine")), it, ".multilane-import-complete")
+                }
             }
-            DesktopOs.Linux -> home.resolve(".ilyukhaline").also { migrateLinuxData(home, it) }
+            DesktopOs.Linux -> home.resolve(".multilane").also {
+                migrateApprovedData(listOf(home.resolve(".ilyukhaline"), home.resolve(".olcbox")), it, ".multilane-import-complete")
+            }
             DesktopOs.Other -> home.resolve(".olcbox")
         }
         Files.createDirectories(dir)
         return dir
     }
 
-    private fun migrateLinuxData(home: Path, targetDir: Path) {
-        val marker = targetDir.resolve(".ilyukhaline-import-complete")
+    private fun migrateApprovedData(sources: List<Path>, targetDir: Path, markerName: String) {
+        val marker = targetDir.resolve(markerName)
         if (Files.exists(marker)) return
-        val sourceDir = home.resolve(".olcbox")
         Files.createDirectories(targetDir)
-        approvedLinuxMigrations.forEach { name ->
-            val source = sourceDir.resolve(name)
-            val target = targetDir.resolve(name)
-            if (Files.isRegularFile(source) && !Files.exists(target)) {
-                Files.copy(source, target)
+        sources.forEach { sourceDir ->
+            approvedMigrations.forEach { name ->
+                val source = sourceDir.resolve(name)
+                val target = targetDir.resolve(name)
+                if (Files.isRegularFile(source) && !Files.exists(target)) {
+                    Files.copy(source, target)
+                }
             }
         }
         Files.writeString(marker, "")
     }
 
-    private val approvedLinuxMigrations = listOf(
+    private val approvedMigrations = listOf(
         "locations_v4.json",
         "locations_v3.json",
         "device_identity",

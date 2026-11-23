@@ -1,12 +1,12 @@
 #!/bin/sh
 set -e
-if ! getent group ghostlane >/dev/null 2>&1; then
-  if command -v groupadd >/dev/null 2>&1; then groupadd -r ghostlane; else addgroup -S ghostlane; fi
+if ! getent group multilane >/dev/null 2>&1; then
+  if command -v groupadd >/dev/null 2>&1; then groupadd -r multilane; else addgroup -S multilane; fi
 fi
-if ! getent passwd ghostlane >/dev/null 2>&1; then
+if ! getent passwd multilane >/dev/null 2>&1; then
   if command -v useradd >/dev/null 2>&1; then
-    useradd -r -g ghostlane -d /var/lib/ghostlane -s /sbin/nologin -c "Ghostlane tunnel" ghostlane
+    useradd -r -g multilane -d /var/lib/multilane -s /sbin/nologin -c "MultiLane tunnel" multilane
   else
-    adduser -S -G ghostlane -h /var/lib/ghostlane -s /sbin/nologin ghostlane
+    adduser -S -G multilane -h /var/lib/multilane -s /sbin/nologin multilane
   fi
 fi

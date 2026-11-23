@@ -360,10 +360,10 @@ final class PacketTunnelController: ObservableObject {
             proto.providerBundleIdentifier = Self.providerBundleId
             // Shown in Settings → VPN. Not a real address; the tunnel decides
             // where it goes once a transport exists.
-            proto.serverAddress = "Ghostlane"
+            proto.serverAddress = "MultiLane"
 
             manager.protocolConfiguration = proto
-            manager.localizedDescription = "Ghostlane"
+            manager.localizedDescription = "MultiLane"
             manager.isEnabled = true
 
             try await manager.saveToPreferences()

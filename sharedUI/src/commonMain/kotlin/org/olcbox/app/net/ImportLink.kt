@@ -24,15 +24,14 @@ object ImportLink {
      * [schemeLink] keeps writing it while installed apps that know only it exist.
      */
     const val SCHEME = "proofkit"
-    /** The app's own name for the same link. */
     const val GHOSTLANE_SCHEME = "ghostlane"
+    const val MULTILANE_SCHEME = "multilane"
     const val HOST = "add"
-    /** What v2RayTun, Streisand and Hiddify call it; subscription pages write both. */
     const val IMPORT_HOST = "import"
     const val WEB_ORIGIN = "https://proofkit.org"
     const val WEB_PATH = "/add"
 
-    private val schemePrefixes = listOf(GHOSTLANE_SCHEME, SCHEME).flatMap { scheme ->
+    private val schemePrefixes = listOf(MULTILANE_SCHEME, GHOSTLANE_SCHEME, SCHEME).flatMap { scheme ->
         listOf("$scheme://$HOST", "$scheme://$IMPORT_HOST")
     }
     private val webPrefixes = listOf("$WEB_ORIGIN$WEB_PATH", "https://www.proofkit.org$WEB_PATH")

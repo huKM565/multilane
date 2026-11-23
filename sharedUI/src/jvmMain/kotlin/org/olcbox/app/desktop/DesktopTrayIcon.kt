@@ -76,17 +76,9 @@ internal object DesktopTrayIcon {
     /** A 16 px tray slot is filled nearly edge to edge, as the system icons are. */
     const val WINDOWS_INK_FRACTION = 0.94f
 
-    /**
-     * The colour of a VPN that is up: the lime of the dot that leads the lane
-     * in the app's own icon.
-     */
-    val LIVE = Color(0xFFB5F23D)
+    val LIVE = Color(0xFF22D3EE)
 
-    /**
-     * The same on a light taskbar: a darker green of that hue. Lime on
-     * near-white is a mark nobody finds.
-     */
-    val LIVE_ON_LIGHT = Color(0xFF4F7F00)
+    val LIVE_ON_LIGHT = Color(0xFF0E7490)
 
     /**
      * How much of its ink the menu bar mark keeps while the VPN is down. Half:
@@ -196,7 +188,6 @@ internal class LaneMarkPainter(
     override val intrinsicSize: Size get() = Size.Unspecified
 
     override fun DrawScope.onDraw() {
-        // The farthest ink from the centre: an edge's end, plus its round cap.
         val halfInkWidth = LANE_HALF * AXIS_X + LANE_OFFSET * AXIS_RISE + STROKE / 2f
         val halfInkHeight = LANE_HALF * AXIS_RISE + LANE_OFFSET * AXIS_X + STROKE / 2f
         val unit = min(
@@ -204,45 +195,36 @@ internal class LaneMarkPainter(
             size.height * inkFraction / (2f * halfInkHeight)
         )
         val centre = Offset(size.width / 2f, size.height / 2f)
-        // Up and to the right; y grows downwards on a canvas.
         val along = Offset(AXIS_X, -AXIS_RISE) * unit
-        val across = Offset(AXIS_RISE, AXIS_X) * (LANE_OFFSET * unit)
+        val across = Offset(AXIS_RISE, AXIS_X) * unit
 
-        for (side in floatArrayOf(-1f, 1f)) {
-            val offset = across * side
+        for (lane in LANES) {
+            val offset = across * lane.offset
             drawLine(
-                color = color,
-                start = centre - along * LANE_HALF + offset,
-                end = centre + along * LANE_HALF + offset,
+                color = color.copy(alpha = color.alpha * lane.opacity),
+                start = centre + along * lane.start + offset,
+                end = centre + along * lane.end + offset,
                 strokeWidth = STROKE * unit,
                 cap = StrokeCap.Round
             )
         }
-        for (dot in LANE_DOTS) {
-            drawCircle(
-                color = color.copy(alpha = color.alpha * dot.opacity),
-                radius = dot.radius * unit,
-                center = centre + along * (LANE_HALF * dot.position)
-            )
-        }
     }
 
-    private class Dot(val position: Float, val radius: Float, val opacity: Float)
+    private class Lane(val offset: Float, val start: Float, val end: Float, val opacity: Float)
 
     private companion object {
         private const val ANGLE = 32.0 * PI / 180.0
         val AXIS_X = cos(ANGLE).toFloat()
         val AXIS_RISE = sin(ANGLE).toFloat()
 
-        const val LANE_HALF = 11f
-        const val LANE_OFFSET = 4.2f
-        const val STROKE = 2.0f
+        const val LANE_HALF = 10.5f
+        const val LANE_OFFSET = 5.6f
+        const val STROKE = 2.6f
 
-        /** Position along the axis in units of [LANE_HALF], radius, opacity. */
-        val LANE_DOTS = listOf(
-            Dot(position = -0.78f, radius = 1.6f, opacity = 0.30f),
-            Dot(position = -0.22f, radius = 2.0f, opacity = 0.62f),
-            Dot(position = 0.50f, radius = 2.6f, opacity = 1.0f)
+        val LANES = listOf(
+            Lane(offset = -LANE_OFFSET, start = -LANE_HALF, end = LANE_HALF, opacity = 0.72f),
+            Lane(offset = 0f, start = -LANE_HALF, end = LANE_HALF, opacity = 1.0f),
+            Lane(offset = LANE_OFFSET, start = -LANE_HALF, end = LANE_HALF, opacity = 0.90f)
         )
     }
 }

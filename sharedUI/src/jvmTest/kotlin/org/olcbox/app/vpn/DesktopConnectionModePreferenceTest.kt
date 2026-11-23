@@ -26,14 +26,14 @@ class DesktopConnectionModePreferenceTest {
         assertEquals(tun, DesktopConnectionModePreference.effective(listOf(tun), DesktopConnectionMode.Proxy))
     }
 
-    @Test fun onlyTheWindowsTunnelCannotRoute() {
+    @Test fun allDesktopModesCanRoute() {
         assertNull(routingUnavailableReasonFor(DesktopOs.MacOS, DesktopConnectionMode.Tun))
         assertNull(routingUnavailableReasonFor(DesktopOs.MacOS, DesktopConnectionMode.Proxy))
         assertNull(routingUnavailableReasonFor(DesktopOs.Windows, DesktopConnectionMode.Proxy))
         assertNull(routingUnavailableReasonFor(DesktopOs.Linux, DesktopConnectionMode.Tun))
         assertNull(routingUnavailableReasonFor(DesktopOs.Linux, null))
-        assertEquals(WINDOWS_TUNNEL_CARRIES_ALL, routingUnavailableReasonFor(DesktopOs.Windows, DesktopConnectionMode.Tun))
-        assertEquals(WINDOWS_TUNNEL_CARRIES_ALL, routingUnavailableReasonFor(DesktopOs.Windows, null))
+        assertNull(routingUnavailableReasonFor(DesktopOs.Windows, DesktopConnectionMode.Tun))
+        assertNull(routingUnavailableReasonFor(DesktopOs.Windows, null))
     }
 
     /** The Linux tunnel routes in olcRTC rooms only, and says so; "only blocked sites" would change nothing there. */

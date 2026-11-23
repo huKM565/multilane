@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- IlyukhaLine does not use the upstream Ghostlane release feed. -->
 <resources>
-    <bool name="store_self_update">false</bool>
+    <bool name="store_self_update">true</bool>
 </resources>

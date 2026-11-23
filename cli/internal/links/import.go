@@ -10,10 +10,16 @@ import (
 // as given.
 func ImportPayload(s string) string {
 	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(strings.ToLower(s), "ghostlane://") {
+	lower := strings.ToLower(s)
+	var rest string
+	switch {
+	case strings.HasPrefix(lower, "multilane://"):
+		rest = s[len("multilane://"):]
+	case strings.HasPrefix(lower, "ghostlane://"):
+		rest = s[len("ghostlane://"):]
+	default:
 		return s
 	}
-	rest := s[len("ghostlane://"):]
 	for _, host := range []string{"add", "import"} {
 		if strings.HasPrefix(strings.ToLower(rest), host+"?") {
 			q, _ := url.ParseQuery(rest[len(host)+1:])

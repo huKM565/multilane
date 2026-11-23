@@ -38,7 +38,7 @@ func TestUsageAndExitCodes(t *testing.T) {
 		t.Fatalf("%d %s", code, errb.String())
 	}
 	out.Reset()
-	if code := run([]string{"version"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "ghostlane ") || !strings.Contains(out.String(), "sing-box") {
+	if code := run([]string{"version"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "multilane-cli ") || !strings.Contains(out.String(), "sing-box") {
 		t.Fatalf("%d %s", code, out.String())
 	}
 }
@@ -48,7 +48,7 @@ func TestStatusAndListRendering(t *testing.T) {
 		switch r.Verb {
 		case "status":
 			return ipc.Response{OK: true, Status: &ipc.Status{State: "up", Mode: "proxy", Selector: "DE", Since: "2026-09-30T10:00:00Z",
-				Line: &ipc.EntryView{Label: "🇩🇪 DE · VP8", Carrier: "telemost", Country: "DE"}, Proxy: &ipc.ProxyView{Socks: "127.0.0.1:1080", HTTP: "127.0.0.1:1080"}}}
+				Line: &ipc.EntryView{Label: "🇩🇪 DE · VP8", Carrier: "telemost", Country: "DE"}, RoomsUp: 4, RoomsTotal: 4, Proxy: &ipc.ProxyView{Socks: "127.0.0.1:1080", HTTP: "127.0.0.1:1080"}}}
 		case "list":
 			return ipc.Response{OK: true, Entries: []ipc.EntryView{{Index: 1, Label: "🇩🇪 DE · VP8", Country: "DE", Kind: "olcrtc", Carrier: "telemost"},
 				{Index: 2, Label: "x", Kind: "vless", Problem: "VLESS lines come in the next version"}}}
@@ -61,7 +61,7 @@ func TestStatusAndListRendering(t *testing.T) {
 	if code := run([]string{"status", "--socket", sock}, &out, &errb); code != 0 {
 		t.Fatalf("%d %s", code, errb.String())
 	}
-	for _, want := range []string{"up", "telemost", "DE", "socks5://127.0.0.1:1080", "http_proxy=http://127.0.0.1:1080"} {
+	for _, want := range []string{"up", "telemost", "DE", "4/4 up", "socks5://127.0.0.1:1080", "http_proxy=http://127.0.0.1:1080"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("status lacks %q:\n%s", want, out.String())
 		}
@@ -100,7 +100,7 @@ func TestListSaysWhyItIsEmpty(t *testing.T) {
 		t.Fatalf("%d\n%s%s", code, out.String(), errb.String())
 	}
 	out.Reset()
-	if code := run([]string{"list", "--socket", listing("")}, &out, &errb); code != 0 || !strings.Contains(out.String(), "(no lines; ghostlane add <url>)") {
+	if code := run([]string{"list", "--socket", listing("")}, &out, &errb); code != 0 || !strings.Contains(out.String(), "(no lines; multilane-cli add <url>)") {
 		t.Fatalf("%d\n%s%s", code, out.String(), errb.String())
 	}
 }
@@ -134,18 +134,18 @@ func TestHelpIsUsable(t *testing.T) {
 	if code := run([]string{"help"}, &out, &errb); code != 0 {
 		t.Fatalf("%d %s", code, errb.String())
 	}
-	for _, want := range []string{"Quick start", "connect DE --tun", "ghostlane add", "docs/cli.md", "help [command]"} {
+	for _, want := range []string{"Quick start", "connect DE --tun", "multilane-cli add", "docs/cli.md", "help [command]"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help lacks %q:\n%s", want, out.String())
 		}
 	}
 	for _, cmd := range []string{"add", "list", "connect", "status", "disconnect", "refresh", "remove", "version", "run"} {
 		out.Reset()
-		if code := run([]string{"help", cmd}, &out, &errb); code != 0 || !strings.Contains(out.String(), "ghostlane "+cmd) {
+		if code := run([]string{"help", cmd}, &out, &errb); code != 0 || !strings.Contains(out.String(), "multilane-cli "+cmd) {
 			t.Fatalf("help %s: %d\n%s", cmd, code, out.String())
 		}
 		out.Reset()
-		if code := run([]string{cmd, "--help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "ghostlane "+cmd) {
+		if code := run([]string{cmd, "--help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "multilane-cli "+cmd) {
 			t.Fatalf("%s --help: %d\n%s", cmd, code, out.String())
 		}
 	}
@@ -169,20 +169,20 @@ func TestProxyEnv(t *testing.T) {
 	if changed, err := applyProxyEnv(cfg, get); err != nil || changed {
 		t.Fatalf("no env, no change: %v %v", changed, err)
 	}
-	env["GHOSTLANE_PROXY_LISTEN"] = "0.0.0.0"
-	if _, err := applyProxyEnv(cfg, get); err == nil || !strings.Contains(err.Error(), "GHOSTLANE_PROXY_USER") {
+	env["MULTILANE_PROXY_LISTEN"] = "0.0.0.0"
+	if _, err := applyProxyEnv(cfg, get); err == nil || !strings.Contains(err.Error(), "MULTILANE_PROXY_USER") {
 		t.Fatalf("0.0.0.0 without credentials: %v", err)
 	}
-	env["GHOSTLANE_PROXY_USER"], env["GHOSTLANE_PROXY_PASS"], env["GHOSTLANE_PROXY_PORT"] = "u", "p", "1085"
+	env["MULTILANE_PROXY_USER"], env["MULTILANE_PROXY_PASS"], env["MULTILANE_PROXY_PORT"] = "u", "p", "1085"
 	changed, err := applyProxyEnv(cfg, get)
 	if err != nil || !changed || cfg.Proxy.Listen != "0.0.0.0" || cfg.Proxy.Port != 1085 || cfg.Proxy.User != "u" || cfg.Proxy.Pass != "p" {
 		t.Fatalf("%+v %v", cfg.Proxy, err)
 	}
-	env["GHOSTLANE_PROXY_PORT"] = "nope"
+	env["MULTILANE_PROXY_PORT"] = "nope"
 	if _, err := applyProxyEnv(cfg, get); err == nil {
 		t.Fatal("a bad port is refused")
 	}
-	env["GHOSTLANE_PROXY_PORT"], env["GHOSTLANE_PROXY_LISTEN"] = "1080", "localhost"
+	env["MULTILANE_PROXY_PORT"], env["MULTILANE_PROXY_LISTEN"] = "1080", "localhost"
 	if _, err := applyProxyEnv(cfg, get); err == nil {
 		t.Fatal("listen must be an IP")
 	}
@@ -200,10 +200,10 @@ func TestRunFlagChecks(t *testing.T) {
 }
 
 func TestDefaultStateDir(t *testing.T) {
-	if got := defaultStateDir(func(string) string { return "" }); got != "/var/lib/ghostlane" {
+	if got := defaultStateDir(func(string) string { return "" }); got != "/var/lib/multilane" {
 		t.Fatal(got)
 	}
-	if got := defaultStateDir(func(k string) string { return map[string]string{"GHOSTLANE_STATE_DIR": "/data"}[k] }); got != "/data" {
+	if got := defaultStateDir(func(k string) string { return map[string]string{"MULTILANE_STATE_DIR": "/data"}[k] }); got != "/data" {
 		t.Fatal(got)
 	}
 }

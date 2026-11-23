@@ -453,5 +453,5 @@ func Select(entries []Entry, selector string) ([]Entry, error) {
 	for _, g := range groups {
 		countries = append(countries, g.Country)
 	}
-	return nil, fmt.Errorf("%w: %q; countries: %s; or a label or an index from `ghostlane list`", ErrNoMatch, sel, strings.Join(countries, " "))
+	return nil, fmt.Errorf("%w: %q; countries: %s; or a label or an index from `multilane-cli list`", ErrNoMatch, sel, strings.Join(countries, " "))
 }

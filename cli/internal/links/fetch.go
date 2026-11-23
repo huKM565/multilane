@@ -15,7 +15,7 @@ import (
 var errBadURL = errors.New("list: the URL cannot be parsed")
 
 const (
-	UserAgentPrefix = "Ghostlane-cli/"
+	UserAgentPrefix = "MultiLane-cli/"
 	maxBody         = 4 << 20
 
 	// deviceFieldMax is what the platform reads of each device header: 64

@@ -85,7 +85,7 @@ object DesktopConnectionModePreference {
             DesktopConnectionModeOption(
                 mode = DesktopConnectionMode.Tun,
                 title = "System-wide tunnel",
-                summary = "Every app on this PC — Ghostlane restarts as administrator"
+                summary = "Every app on this PC — MultiLane restarts as administrator"
             ),
             DesktopConnectionModeOption(
                 mode = DesktopConnectionMode.Proxy,
@@ -132,8 +132,7 @@ object DesktopConnectionModePreference {
 fun desktopRoutingUnavailableReason(effective: DesktopConnectionMode?): String? =
     routingUnavailableReasonFor(DesktopPaths.os, effective)
 
-internal fun routingUnavailableReasonFor(os: DesktopOs, effective: DesktopConnectionMode?): String? =
-    if (os == DesktopOs.Windows && effective != DesktopConnectionMode.Proxy) WINDOWS_TUNNEL_CARRIES_ALL else null
+internal fun routingUnavailableReasonFor(os: DesktopOs, effective: DesktopConnectionMode?): String? = null
 
 /** What the routing screen adds on this desktop, or null: the Linux tunnel routes only in rooms. */
 fun desktopRoutingNote(): String? = routingNoteFor(DesktopPaths.os)

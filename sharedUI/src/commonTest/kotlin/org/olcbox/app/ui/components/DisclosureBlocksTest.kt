@@ -26,7 +26,7 @@ class DisclosureBlocksTest {
     fun theOpeningSentenceHasNoHeadingOverIt() {
         val first = disclosureBlocks(DISCLOSURE_BODY).first()
         assertNull(first.heading)
-        assertTrue(first.paragraphs.single().startsWith("Ghostlane connects using"))
+        assertTrue(first.paragraphs.single().startsWith("MultiLane connects using"))
     }
 
     @Test

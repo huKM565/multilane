@@ -56,6 +56,7 @@ __pycache__/
 
 # Prebuilt native libraries
 androidApp/jniLibs/*/*.so
+desktopApp/src/main/resources/native/
 
 .worktrees/
 

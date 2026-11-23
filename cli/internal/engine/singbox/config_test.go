@@ -216,7 +216,7 @@ func TestTunConfigParsesAndBuildsUnprivileged(t *testing.T) {
 	}
 	_ = f.Close()
 	s := string(cfg)
-	for _, want := range []string{`"interface_name":"ghostlane0"`, `"auto_route":true`, `"strict_route":false`,
+	for _, want := range []string{`"interface_name":"multilane0"`, `"auto_route":true`, `"strict_route":false`,
 		`"iproute2_table_index":2022`, `"iproute2_rule_index":9000`, `"exclude_uid":[977]`, `"stack":"system"`,
 		`"172.19.0.1/30"`, `"fdfe:dcba:9876::1/126"`, `"169.254.0.0/16"`, `"hijack-dns"`, `"ip_version":6`,
 		`"default_domain_resolver":"local"`, `"detour":"tunnel"`, `"final":"tunnel"`} {

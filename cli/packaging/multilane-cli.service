@@ -1,14 +1,14 @@
 [Unit]
-Description=Ghostlane tunnel (olcRTC rooms and share links; tun or proxy mode)
-Documentation=https://github.com/ghostlane-project/ghostlane/blob/main/docs/cli.md
+Description=MultiLane tunnel (olcRTC rooms, bonded pools and share links; tun or proxy mode)
+Documentation=https://github.com/huKM565/multilane/blob/main/docs/cli.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=/usr/bin/ghostlane run
-User=ghostlane
-Group=ghostlane
+ExecStart=/usr/bin/multilane-cli run
+User=multilane
+Group=multilane
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
@@ -16,9 +16,9 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 DeviceAllow=/dev/net/tun rw
-RuntimeDirectory=ghostlane
+RuntimeDirectory=multilane
 RuntimeDirectoryMode=0750
-StateDirectory=ghostlane
+StateDirectory=multilane
 StateDirectoryMode=0700
 Restart=on-failure
 RestartSec=2

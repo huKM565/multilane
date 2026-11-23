@@ -70,6 +70,9 @@ func (d *Daemon) status() *ipc.Status {
 		v := entryView(0, d.cur.entry)
 		v.Index = 0
 		st.Line = &v
+		if br, ok := d.cur.engine.(interface{ BondRooms() (int, int) }); ok {
+			st.RoomsUp, st.RoomsTotal = br.BondRooms()
+		}
 		st.Since = d.since.UTC().Format(time.RFC3339)
 		if d.cur.mode == "proxy" {
 			addr := net.JoinHostPort(d.cfg.Proxy.Listen, strconv.Itoa(d.cfg.Proxy.Port))

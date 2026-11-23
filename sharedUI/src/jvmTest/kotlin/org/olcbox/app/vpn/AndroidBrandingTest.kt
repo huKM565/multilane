@@ -12,15 +12,17 @@ class AndroidBrandingTest {
         val strings = File("../androidApp/src/main/res/values/strings.xml").readText()
         val common = File("../sharedUI/src/commonMain/kotlin/org/olcbox/app/ui/components/kit/Pk.kt").readText()
 
-        assertTrue("const val name = \"ИлюхаLine\"" in common)
+        assertTrue("const val name = \"MultiLane\"" in common)
         assertTrue("applicationId = \"ru.hukm.ilyukhaline\"" in build)
-        assertTrue("android:label=\"ИлюхаLine\"" in manifest)
-        assertTrue("<string name=\"qs_tile_label\">ИлюхаLine</string>" in strings)
+        assertTrue("android:label=\"MultiLane\"" in manifest)
+        assertTrue("<string name=\"qs_tile_label\">MultiLane</string>" in strings)
     }
 
     @Test
-    fun androidForkDoesNotOfferGhostlaneUpdates() {
+    fun androidForkUsesMultiLaneUpdates() {
         val store = File("../androidApp/src/main/res/values/store.xml").readText()
-        assertTrue("<bool name=\"store_self_update\">false</bool>" in store)
+        val updateService = File("src/commonMain/kotlin/org/olcbox/app/update/AppUpdateService.kt").readText()
+        assertTrue("<bool name=\"store_self_update\">true</bool>" in store)
+        assertTrue("https://github.com/huKM565/multilane" in updateService)
     }
 }

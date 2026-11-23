@@ -1,4 +1,4 @@
-name: Build IlyukhaLine for Windows
+name: Build MultiLane for Windows
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       version:
         description: 'Release version'
         required: false
-        default: '1.0.473'
+        default: '1.0.474'
         type: string
 
 permissions:
@@ -19,10 +19,10 @@ jobs:
       - name: Keep source and resources byte-for-byte
         run: git config --global core.autocrlf false
 
-      - name: Checkout IlyukhaLine
+      - name: Checkout MultiLane
         uses: actions/checkout@v7
         with:
-          path: ilyukhaline
+          path: multilane
 
       - name: Checkout pinned olcRTC
         uses: actions/checkout@v7
@@ -32,10 +32,10 @@ jobs:
           path: olcrtc
           submodules: recursive
 
-      - name: Apply IlyukhaLine olcRTC occupancy patch
+      - name: Apply MultiLane olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
-        run: git apply ../ilyukhaline/scripts/patches/olcrtc-room-occupancy.patch
+        run: git apply ../multilane/scripts/patches/olcrtc-room-occupancy.patch
 
       - name: Setup JDK
         uses: actions/setup-java@v6
@@ -52,12 +52,12 @@ jobs:
 
       - name: Build sing-box
         shell: bash
-        working-directory: ilyukhaline
+        working-directory: multilane
         run: bash scripts/build-singbox.sh desktopApp/src/main/resources/native/sing-box.exe
 
       - name: Bundle Xray and verify native cores
         shell: pwsh
-        working-directory: ilyukhaline
+        working-directory: multilane
         run: |
           $ErrorActionPreference = "Stop"
           $dest = "desktopApp/src/main/resources/native"
@@ -71,20 +71,20 @@ jobs:
 
       - name: Test and package Windows
         shell: pwsh
-        working-directory: ilyukhaline
+        working-directory: multilane
         run: |
           $ErrorActionPreference = "Stop"
-          $version = "${{ inputs.version || '1.0.473' }}"
+          $version = "${{ inputs.version || '1.0.474' }}"
           $env:OLCRTC_REPO = "${{ github.workspace }}\olcrtc"
           .\gradlew.bat "-Polcbox.version=$version" :sharedUI:jvmTest :desktopApp:packageReleaseExe :desktopApp:packageReleaseMsi :desktopApp:packageReleasePortableZip --stacktrace
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed" }
 
       - name: Prepare artifacts
         shell: pwsh
-        working-directory: ilyukhaline
+        working-directory: multilane
         run: |
           $ErrorActionPreference = "Stop"
-          $version = "${{ inputs.version || '1.0.473' }}"
+          $version = "${{ inputs.version || '1.0.474' }}"
           New-Item -ItemType Directory -Force dist | Out-Null
           $exe = Get-ChildItem "desktopApp/build/compose/binaries/main-release/exe/*.exe" | Select-Object -First 1
           $msi = Get-ChildItem "desktopApp/build/compose/binaries/main-release/msi/*.msi" | Select-Object -First 1
@@ -98,4 +98,4 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: MultiLane-windows-amd64
-          path: ilyukhaline/dist/MultiLane-*
+          path: multilane/dist/MultiLane-*

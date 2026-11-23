@@ -54,7 +54,7 @@ func TestDiff(t *testing.T) {
 }
 
 func TestWatchAddressesStops(t *testing.T) {
-	m := New("ghostlane0")
+	m := New("multilane0")
 	stop, err := m.WatchAddresses(context.Background(), func() {})
 	if err != nil {
 		t.Skipf("netlink address subscription unavailable here: %v", err)

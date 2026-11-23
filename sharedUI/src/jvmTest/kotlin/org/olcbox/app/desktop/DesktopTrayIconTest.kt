@@ -145,7 +145,7 @@ class DesktopTrayIconTest {
         val frame = (live.width * LiveFramePainter.FRAME).toInt()
 
         for ((x, y) in listOf(middle to 1, middle to last - 1, 1 to middle, last - 1 to middle)) {
-            assertNear(0xB5F23D, live.getRGB(x, y) and 0xFFFFFF, "the frame at $x,$y")
+            assertNear(0x22D3EE, live.getRGB(x, y) and 0xFFFFFF, "the frame at $x,$y")
         }
         assertNear(0x6675FF, live.getRGB(middle, middle) and 0xFFFFFF, "the middle of the tile")
         assertNear(0x6675FF, live.getRGB(middle, frame + 2) and 0xFFFFFF, "the tile just inside the frame")

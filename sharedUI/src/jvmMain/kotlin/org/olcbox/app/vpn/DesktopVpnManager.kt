@@ -195,7 +195,7 @@ class DesktopVpnManager private constructor(
             "The proxy binds only to the selected private interface; your system firewall still controls which local devices can reach it."
         DesktopOs.Other -> null
     }
-    private val lanShutdownHook = Thread({ lanProxy.stop() }, "ghostlane-lan-cleanup")
+    private val lanShutdownHook = Thread({ lanProxy.stop() }, "multilane-lan-cleanup")
 
     /** Where traffic actually comes out, as measured after connecting. */
     private val _exitInfo = MutableStateFlow<org.olcbox.app.net.TunnelExit?>(null)
@@ -917,6 +917,7 @@ class DesktopVpnManager private constructor(
                     if (isBondedDesktopTun(location, desktopMode)) {
                         frontPort = startDesktopBond(
                             location = location,
+                            desktopMode = desktopMode,
                             socksSettings = socksSettings,
                             dtlsProfile = dtlsProfile,
                             dnsServer = tunResolvers?.let(DesktopDnsResolver::engineServers)
@@ -990,13 +991,27 @@ class DesktopVpnManager private constructor(
                         password = socksSettings.password
                     ).login
                 )
-                DesktopMode.WindowsTun -> startWindowsTun(
-                    effectiveSocksPort,
-                    requestGeneration,
-                    location,
-                    isOlcrtc,
-                    socksSettings
-                )
+                DesktopMode.WindowsTun -> {
+                    val tunRouting: Routing = if (rulesHome == DesktopRulesHome.Daemon) {
+                        val routing = routingSettings.toRules(
+                            DesktopPaths.appDataDir().resolve("rulesets").toString(),
+                            DirectDns.System
+                        )
+                        installRuleSets(routing)
+                        routing
+                    } else {
+                        Routing.Global
+                    }
+                    startWindowsTun(
+                        effectiveSocksPort,
+                        requestGeneration,
+                        location,
+                        isOlcrtc,
+                        socksSettings,
+                        tunRouting,
+                        verboseLogs
+                    )
+                }
                 DesktopMode.MacTun -> {
                     val daemonRouting = if (rulesHome == DesktopRulesHome.Daemon) {
                         routingSettings.toRules(TunnelDaemonProtocol.RULES_DIR, DirectDns.System)
@@ -1275,7 +1290,9 @@ class DesktopVpnManager private constructor(
         requestGeneration: Long,
         location: LocationConfig,
         isOlcrtc: Boolean,
-        socksSettings: DesktopSocksProxySettings
+        socksSettings: DesktopSocksProxySettings,
+        routing: Routing = Routing.Global,
+        verboseLogs: Boolean = false
     ) {
         val physicalInterface = windowsTunController.physicalInterface()
         DesktopNativeAssets.ensureWintunRuntime()
@@ -1336,7 +1353,8 @@ class DesktopVpnManager private constructor(
                     upstreamUdpIsLossy = isOlcrtc,
                     excludeAddresses = carrier.addresses,
                     directDnsDomains = carrier.domains,
-                    routing = Routing.Global,
+                    routing = routing,
+                    verboseLogs = verboseLogs,
                     bindInterface = physicalInterface,
                     bypassProcessPaths = bypassPaths,
                     cacheFilePath = cachePath.toString(),
@@ -1724,12 +1742,14 @@ class DesktopVpnManager private constructor(
      */
     private suspend fun startDesktopBond(
         location: LocationConfig,
+        desktopMode: DesktopMode,
         socksSettings: DesktopSocksProxySettings,
         dtlsProfile: String,
         dnsServer: String,
         coreRouting: Routing,
         verboseLogs: Boolean,
     ): Int {
+        val useLinuxSupervisor = desktopMode == DesktopMode.LinuxTun
         val config = location.normalized()
         val (paths, ports) = planBondPaths(config, ::allocateBondPort)
         stopDesktopBond()
@@ -1801,7 +1821,7 @@ class DesktopVpnManager private constructor(
                     ".yaml",
                 )
                 Files.writeString(configPath, command.yaml(), StandardCharsets.UTF_8)
-                if (DesktopPaths.os == DesktopOs.Linux) {
+                if (useLinuxSupervisor) {
                     linuxConfigs.add(configPath)
                     return@forEachIndexed
                 }
@@ -1820,7 +1840,7 @@ class DesktopVpnManager private constructor(
                 val process = launchRoom()
                 started += DesktopOlcRtcBond.Room(process, configPath, port, restart = ::launchRoom)
             }
-            if (DesktopPaths.os == DesktopOs.Linux) {
+            if (useLinuxSupervisor) {
                 val runtime = Files.createTempDirectory(
                     olcRtcConfigDir().also { Files.createDirectories(it) },
                     "${OLCRTC_CONFIG_PREFIX}supervisor-",
@@ -1896,6 +1916,7 @@ class DesktopVpnManager private constructor(
             if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
                 error("bonded Xray SOCKS not ready on $xrayPort")
             }
+            val frontLogin = if (desktopMode == DesktopMode.SystemProxy) null else login
             singBoxCore.start(
                 SingBoxConfig.buildSocksChain(
                     xrayPort,
@@ -1904,7 +1925,7 @@ class DesktopVpnManager private constructor(
                     password = login?.password.orEmpty(),
                     routing = coreRouting,
                     verboseLogs = verboseLogs,
-                    login = login,
+                    login = frontLogin,
                 )
             )
             if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && xrayCore.isRunning() }) {
@@ -2016,6 +2037,7 @@ class DesktopVpnManager private constructor(
             if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
                 error("$label Xray SOCKS not ready on $xrayPort")
             }
+            val frontLogin = if (line.desktopMode == DesktopMode.SystemProxy) null else login
             singBoxCore.start(
                 SingBoxConfig.buildSocksChain(
                     xrayPort,
@@ -2024,7 +2046,7 @@ class DesktopVpnManager private constructor(
                     password = login?.password.orEmpty(),
                     routing = line.coreRouting,
                     verboseLogs = line.verboseLogs,
-                    login = login,
+                    login = frontLogin,
                 )
             )
             if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && xrayCore.isRunning() }) {
@@ -4527,10 +4549,10 @@ internal fun windowsTunInterfaceName(
     sessionId: String,
     requestGeneration: Long,
     attempt: Int
-): String = "Ghostlane-$sessionId-${requestGeneration.toString(16)}-${attempt + 1}"
+): String = "MultiLane-$sessionId-${requestGeneration.toString(16)}-${attempt + 1}"
 
 internal fun isBondedDesktopTun(location: LocationConfig, mode: DesktopMode): Boolean =
-    mode in setOf(DesktopMode.LinuxTun, DesktopMode.WindowsTun) &&
+    mode in DesktopMode.entries &&
         location.kind == LocationKind.Olcrtc && !location.bondVlessLink.isNullOrBlank()
 
 internal fun windowsTunCachePath(
@@ -4644,7 +4666,7 @@ internal fun desktopRulesHome(mode: DesktopMode, isOlcrtc: Boolean, needsRules: 
     when {
         !needsRules -> DesktopRulesHome.Nowhere
         mode == DesktopMode.SystemProxy -> DesktopRulesHome.Core
-        mode == DesktopMode.MacTun -> DesktopRulesHome.Daemon
+        mode == DesktopMode.MacTun || mode == DesktopMode.WindowsTun -> DesktopRulesHome.Daemon
         mode == DesktopMode.LinuxTun && isOlcrtc -> DesktopRulesHome.Engine
         else -> DesktopRulesHome.Nowhere
     }

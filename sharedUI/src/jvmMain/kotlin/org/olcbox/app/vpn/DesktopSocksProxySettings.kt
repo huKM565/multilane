@@ -42,7 +42,7 @@ data class DesktopSocksProxySettings(
     }
 
     fun withGeneratedLanCredentials(): DesktopSocksProxySettings = copy(
-        lanUsername = "ghostlane-${randomToken(8)}",
+        lanUsername = "multilane-${randomToken(8)}",
         lanPassword = randomToken(24)
     )
 

@@ -121,7 +121,7 @@ val hevSocks5TunnelSourceDir = rootProject.layout.projectDirectory.dir("androidA
 val currentBuildOs = OperatingSystem.current()
 // Installed application name (IlyukhaLine.exe on Windows). The fork has its own
 // Windows upgradeUuid and data directory, so it installs beside Ghostlane.
-val desktopPackageName = "IlyukhaLine"
+val desktopPackageName = "MultiLane"
 val desktopPackageVersion = providers.gradleProperty("olcbox.version").orElse("1.0.0").get()
 val wintunVersion = "0.14.1"
 val currentBuildTargetFormats = when {
@@ -576,7 +576,7 @@ compose.desktop {
             }
             windows {
                 iconFile.set(project.file("appIcons/WindowsIcon.ico"))
-                menuGroup = "IlyukhaLine"
+                menuGroup = "MultiLane"
                 shortcut = true
                 dirChooser = true
                 upgradeUuid = "b3c2e0cb-9b3e-4f6c-9e2a-6a2c47e3c815"
@@ -595,6 +595,7 @@ compose.desktop {
                                 <string>org.olcbox.app.desktopApp.import</string>
                                 <key>CFBundleURLSchemes</key>
                                 <array>
+                                    <string>multilane</string>
                                     <string>ghostlane</string>
                                     <string>proofkit</string>
                                 </array>
@@ -672,7 +673,7 @@ if (currentBuildOs.isLinux) {
             Exec=$desktopPackageName %u
             Icon=olcbox
             Categories=Network;Utility;
-            MimeType=x-scheme-handler/ghostlane;x-scheme-handler/proofkit;
+            MimeType=x-scheme-handler/multilane;x-scheme-handler/ghostlane;x-scheme-handler/proofkit;
             Terminal=false
             DESKTOP
 

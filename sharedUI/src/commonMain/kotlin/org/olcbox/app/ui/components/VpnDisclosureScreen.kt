@@ -203,7 +203,7 @@ private const val SENTENCE_ENDS = ".。!！?？؟…:："
  * manifest say so. Until 2026-10-20 this text said nothing identifying was
  * sent, which contradicted all four.
  */
-internal const val DISCLOSURE_BODY = """Ghostlane connects using your device's system VPN.
+internal const val DISCLOSURE_BODY = """MultiLane connects using your device's system VPN.
 
 WHAT IT DOES
 
@@ -219,7 +219,7 @@ Your server lists and the app's own log stay on this device.
 
 WHERE YOUR TRAFFIC GOES
 
-To the server you selected, and nowhere else. That server is operated by whoever gave you the server list, and what it does with your traffic is governed by them. Ghostlane does not run it and does not sell one.
+To the server you selected, and nowhere else. That server is operated by whoever gave you the server list, and what it does with your traffic is governed by them. MultiLane does not run it and does not sell one.
 
 Traffic is encrypted between this device and that server.
 

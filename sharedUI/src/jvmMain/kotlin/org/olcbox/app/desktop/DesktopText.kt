@@ -124,12 +124,12 @@ internal val DESKTOP_MODE_TEXTS: Map<String, StringResource> = mapOf(
     "Install the system-wide tunnel below first" to Res.string.desktop_mode_install_first,
     "Proxy" to Res.string.connection_mode_proxy,
     "Local SOCKS5 proxy — only apps that follow the system proxy" to Res.string.desktop_mode_proxy,
-    "Every app on this PC — Ghostlane restarts as administrator" to Res.string.desktop_mode_tunnel_windows,
+    "Every app on this PC — MultiLane restarts as administrator" to Res.string.desktop_mode_tunnel_windows,
     "Every app on this machine, through a TUN device" to Res.string.desktop_mode_tunnel_linux,
     WINDOWS_TUNNEL_CARRIES_ALL to Res.string.desktop_routing_unavailable,
     LINUX_TUNNEL_ROOMS_ONLY to Res.string.desktop_routing_linux_rooms,
     "Not installed — tap to install" to Res.string.helper_not_installed,
     "Approve in System Settings › General › Login Items" to Res.string.helper_needs_approval,
     "Installed" to Res.string.helper_installed,
-    "Missing from this build — reinstall Ghostlane" to Res.string.helper_missing
+    "Missing from this build — reinstall MultiLane" to Res.string.helper_missing
 )

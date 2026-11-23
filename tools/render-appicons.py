@@ -1,34 +1,18 @@
 #!/usr/bin/env python3
-"""Render Ghostlane launcher icons (Pillow only).
-
-The mark: a lane — two parallel edges on a 32° diagonal — with three dots
-running along it, the front one lime and the two behind it fading into the
-tile, a trail. Drawn in a 32-unit box centred at (16, 16) like the old favicon
-mesh was, so the density and safe-zone arithmetic below is unchanged.
-
-Outputs:
-  androidApp/src/main/res/mipmap-*/ic_launcher.png          legacy launcher
-  androidApp/src/main/res/mipmap-*/ic_launcher_{background,foreground}.png
-                                                            adaptive layers (108dp)
-  androidApp/src/main/res/mipmap-*/ic_qs_tile.png           monochrome QS tile
-  androidApp/src/main/res/playstore_icon.png                512 store icon
-  desktopApp/appIcons/{LinuxIcon.png,WindowsIcon.ico,MacosIcon.icns}
-
-Usage: python3 tools/render-appicons.py [repo-root]
-"""
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import json
+import math
 import os
 import sys
 
-SS = 8  # supersampling factor
+SS = 8
 
 BG = "#07080D"
-LIME = "#B5F23D"
-INDIGO = "#6675FF"
-EDGE = "#2A2D42"
+CYAN = "#22D3EE"
+CYAN_BRIGHT = "#67E8F9"
+CYAN_MID = "#0891B2"
+CORAL = "#FF8A65"
 
-# Density buckets: legacy launcher px, adaptive layer px (108dp), QS tile px.
 DENSITIES = {
     "hdpi": (72, 162, 36),
     "xhdpi": (96, 216, 48),
@@ -43,124 +27,133 @@ ADAPTIVE_XML = """<?xml version="1.0" encoding="utf-8"?>
 </adaptive-icon>
 """
 
-
-def _blend(colour: str, alpha: float) -> str:
-    """`colour` laid over the tile at `alpha`, as an opaque colour: the legacy
-    tile and the adaptive foreground both sit on BG, and ImageDraw replaces
-    pixels rather than compositing, so a real alpha would punch a hole."""
-    c = tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
-    b = tuple(int(BG[i:i + 2], 16) for i in (1, 3, 5))
-    return "#%02X%02X%02X" % tuple(round(b[i] + (c[i] - b[i]) * alpha) for i in range(3))
-
-
-# The lane axis: 32° up and to the right, half-length LANE_HALF; the two edges
-# sit ±LANE_OFFSET from it. Dots along the axis at LANE_DOTS (position in units
-# of LANE_HALF, radius in favicon units, opacity).
-#
-# The desktop tray draws the same mark in code (LaneMarkPainter in
-# sharedUI/src/jvmMain/.../desktop/DesktopTrayIcon.kt): change the two together.
 LANE_ANGLE_DEG = 32.0
-LANE_HALF = 11.0
-LANE_OFFSET = 4.2
-LANE_STROKE = 1.5
-LANE_DOTS = ((-0.78, 1.6, 0.30), (-0.22, 2.0, 0.62), (0.50, 2.6, 1.0))
+STREAMS = (
+    (-5.6, -9.2, 4.2, 2.5, CYAN_MID, 0.78),
+    (0.0, -10.4, 8.2, 2.85, CYAN, 1.0),
+    (5.6, -6.2, 9.6, 2.5, CORAL, 1.0),
+)
+
+INK_SPAN = 25.0
+INK_CENTRE_Y = 16.0
+INK_RADIUS = 13.0
+
+ADAPTIVE_SAFE_DIAMETER = (72.0 / 108.0) * 0.96
+ADAPTIVE_INK_FRACTION = ADAPTIVE_SAFE_DIAMETER * INK_SPAN / (2 * INK_RADIUS)
 
 
-def _mesh(d: ImageDraw.ImageDraw, u: float, cx: float, cy: float, mono: bool) -> None:
-    """Draw the lane glyph. `u` = one favicon viewBox unit; (cx, cy) = glyph centre."""
-    import math
+def _hex_rgb(colour: str) -> tuple[int, int, int]:
+    return tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
 
+
+def _blend(colour: str, alpha: float) -> tuple[int, int, int, int]:
+    c = _hex_rgb(colour)
+    b = _hex_rgb(BG)
+    return tuple(round(b[i] + (c[i] - b[i]) * alpha) for i in range(3)) + (255,)
+
+
+def _rounded_line(d: ImageDraw.ImageDraw, p0, p1, width: int, fill) -> None:
+    d.line([p0, p1], fill=fill, width=width)
+    r = width / 2.0
+    for x, y in (p0, p1):
+        d.ellipse([x - r, y - r, x + r, y + r], fill=fill)
+
+
+def _mark(d: ImageDraw.ImageDraw, u: float, cx: float, cy: float, mono: bool) -> None:
     ang = math.radians(LANE_ANGLE_DEG)
     dx, dy = math.cos(ang), -math.sin(ang)
     px, py = -dy, dx
-    width = max(1, round(LANE_STROKE * u))
-    edge = "#FFFFFF" if mono else EDGE
 
-    for side in (-1, 1):
-        ox, oy = side * px * LANE_OFFSET * u, side * py * LANE_OFFSET * u
-        p0 = (cx - dx * LANE_HALF * u + ox, cy - dy * LANE_HALF * u + oy)
-        p1 = (cx + dx * LANE_HALF * u + ox, cy + dy * LANE_HALF * u + oy)
-        d.line([p0, p1], fill=edge, width=width)
-        r = width / 2
-        for (x, y) in (p0, p1):
-            d.ellipse([x - r, y - r, x + r, y + r], fill=edge)
+    for off, t0, t1, stroke, col, alpha in STREAMS:
+        ox, oy = px * off * u, py * off * u
+        w = max(1, round(stroke * u))
+        p0 = (cx + dx * t0 * u + ox, cy + dy * t0 * u + oy)
+        p1 = (cx + dx * t1 * u + ox, cy + dy * t1 * u + oy)
+        fill = (255, 255, 255, round(255 * alpha)) if mono else _blend(col, alpha)
+        _rounded_line(d, p0, p1, w, fill)
 
-    for index, (t, radius, alpha) in enumerate(LANE_DOTS):
-        x = cx + dx * LANE_HALF * u * t
-        y = cy + dy * LANE_HALF * u * t
-        front = index == len(LANE_DOTS) - 1
-        if mono:
-            colour = (255, 255, 255, round(255 * alpha))
-        else:
-            colour = LIME if front else _blend(INDIGO, alpha)
-        r = radius * u
-        d.ellipse([x - r, y - r, x + r, y + r], fill=colour)
+        trail = (cx + dx * (t0 - 2.6) * u + ox, cy + dy * (t0 - 2.6) * u + oy)
+        tr = (stroke * 0.44) * u
+        tfill = (255, 255, 255, round(255 * 0.42)) if mono else _blend(col, 0.38)
+        d.ellipse([trail[0] - tr, trail[1] - tr, trail[0] + tr, trail[1] + tr], fill=tfill)
+
+    dot_r = 1.75 * u
+    ox, oy = px * (-5.6) * u, py * (-5.6) * u
+    hx = cx + dx * 8.4 * u + ox
+    hy = cy + dy * 8.4 * u + oy
+    hfill = (255, 255, 255, 255) if mono else _hex_rgb(CYAN_BRIGHT) + (255,)
+    d.ellipse([hx - dot_r, hy - dot_r, hx + dot_r, hy + dot_r], fill=hfill)
 
 
 def tile(size: int) -> Image.Image:
-    """Legacy/store icon: dark rounded tile with the mesh glyph."""
     s = size * SS
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     u = s / 32.0
     d.rounded_rectangle([0, 0, s - 1, s - 1], radius=7 * u, fill=BG)
-    _mesh(d, u, s / 2, s / 2, mono=False)
+    d.rounded_rectangle(
+        [0.6 * u, 0.6 * u, s - 1 - 0.6 * u, s - 1 - 0.6 * u],
+        radius=6.5 * u,
+        outline=(34, 211, 238, 32),
+        width=max(1, round(0.35 * u)),
+    )
+    _mark(d, u, s / 2.0, s / 2.0, mono=False)
     return img.resize((size, size), Image.LANCZOS)
 
 
 def adaptive_background(size: int) -> Image.Image:
-    """Adaptive background layer: flat brand colour, the system applies the mask."""
     return Image.new("RGBA", (size, size), BG)
 
 
-# Ink bounds of the lane glyph in favicon units, from the geometry above: the
-# far corners of the two edges (half-length 11, offset 4.2, half-stroke 0.75)
-# reach x ±12.3 and y ±10.1 around the centre, and the farthest ink from the
-# centre is 12.5 units. The glyph is symmetric about (16, 16).
-INK_SPAN = 24.6
-INK_HEIGHT = 20.3
-INK_CENTRE_Y = 16.0
-INK_RADIUS = 12.5
-
-# Adaptive icons are masked to a circle inscribed in the inner 72dp of the 108dp
-# canvas, so the ink must fit that circle by its farthest point, not its width.
-ADAPTIVE_SAFE_DIAMETER = (72.0 / 108.0) * 0.98
-ADAPTIVE_INK_FRACTION = ADAPTIVE_SAFE_DIAMETER * INK_SPAN / (2 * INK_RADIUS)
-
-
 def _glyph_only(size: int, fraction: float, mono: bool) -> Image.Image:
-    """Glyph on transparency, its ink filling `fraction` of the canvas."""
     s = size * SS
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     u = (s * fraction) / INK_SPAN
-    # shift down so the ink box — not the nominal box — is centred
-    _mesh(d, u, s / 2, s / 2 + (16.0 - INK_CENTRE_Y) * u, mono=mono)
+    _mark(d, u, s / 2.0, s / 2.0 + (16.0 - INK_CENTRE_Y) * u, mono=mono)
     return img.resize((size, size), Image.LANCZOS)
 
 
 def adaptive_foreground(size: int) -> Image.Image:
-    """Adaptive foreground: glyph inside the circular safe zone, transparent bg."""
     return _glyph_only(size, fraction=ADAPTIVE_INK_FRACTION, mono=False)
 
 
 def qs_tile(size: int) -> Image.Image:
-    """Quick Settings tile: monochrome glyph on transparency (system tints it)."""
     return _glyph_only(size, fraction=0.90, mono=True)
 
 
 def ios_icon(size: int) -> Image.Image:
-    """iOS app icon: square, fully opaque, no rounded corners.
-
-    iOS applies its own superellipse mask, and an alpha channel gets an App Store
-    submission rejected — so this is RGB with the corners left square.
-    """
     s = size * SS
     img = Image.new("RGB", (s, s), BG)
     d = ImageDraw.Draw(img)
     u = (s * 0.72) / INK_SPAN
-    _mesh(d, u, s / 2, s / 2 + (16.0 - INK_CENTRE_Y) * u, mono=False)
+    _mark(d, u, s / 2.0, s / 2.0 + (16.0 - INK_CENTRE_Y) * u, mono=False)
     return img.resize((size, size), Image.LANCZOS)
+
+
+def tv_banner() -> Image.Image:
+    w, h = 320, 180
+    ss = 4
+    img = Image.new("RGB", (w * ss, h * ss), BG)
+    d = ImageDraw.Draw(img)
+    u = (h * ss * 0.48) / 32.0
+    _mark(d, u, 74 * ss, h * ss / 2.0, mono=False)
+
+    font = None
+    for path in (
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ):
+        if os.path.exists(path):
+            font = ImageFont.truetype(path, 34 * ss)
+            break
+    if font is None:
+        font = ImageFont.load_default()
+    bbox = d.textbbox((0, 0), "MultiLane", font=font)
+    th = bbox[3] - bbox[1]
+    ty = (h * ss - th) / 2.0 - bbox[1]
+    d.text((122 * ss, ty), "MultiLane", fill="#F1F5F9", font=font)
+    return img.resize((w, h), Image.LANCZOS)
 
 
 def save(img: Image.Image, path: str) -> None:
@@ -179,7 +172,6 @@ def main(root: str) -> None:
         save(adaptive_foreground(adaptive_px), os.path.join(base, "ic_launcher_foreground.png"))
         save(qs_tile(tile_px), os.path.join(base, "ic_qs_tile.png"))
 
-    # Wire the adaptive icon so Android 8+ uses the masked layers.
     xml_dir = os.path.join(res, "mipmap-anydpi-v26")
     os.makedirs(xml_dir, exist_ok=True)
     xml_path = os.path.join(xml_dir, "ic_launcher.xml")
@@ -188,6 +180,7 @@ def main(root: str) -> None:
     print(f"wrote {xml_path}")
 
     save(tile(512), os.path.join(res, "playstore_icon.png"))
+    save(tv_banner(), os.path.join(res, "drawable-xhdpi/tv_banner.png"))
 
     icons = os.path.join(root, "desktopApp/appIcons")
     save(tile(512), os.path.join(icons, "LinuxIcon.png"))
@@ -204,7 +197,6 @@ def main(root: str) -> None:
     master.save(icns_path)
     print(f"wrote {icns_path}")
 
-    # iOS: single 1024 icon in the asset catalog (Xcode 14+ single-size form).
     appiconset = os.path.join(root, "iosApp/iosApp/Assets.xcassets/AppIcon.appiconset")
     save(ios_icon(1024), os.path.join(appiconset, "AppIcon1024.png"))
 

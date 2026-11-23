@@ -13,7 +13,7 @@ class DesktopBrandingTest {
     @Test
     fun windowsPackageHasItsOwnIdentity() {
         val build = File("../desktopApp/build.gradle.kts").readText()
-        assertTrue("val desktopPackageName = \"IlyukhaLine\"" in build)
+        assertTrue("val desktopPackageName = \"MultiLane\"" in build)
         assertTrue("upgradeUuid = \"b3c2e0cb-9b3e-4f6c-9e2a-6a2c47e3c815\"" in build)
         assertNotEquals(
             "6f0aaf78-dbed-4745-9d95-9e63f10a30de",
@@ -22,25 +22,25 @@ class DesktopBrandingTest {
     }
 
     @Test
-    fun desktopForkDoesNotOfferGhostlaneUpdates() {
+    fun desktopForkUsesMultiLaneUpdates() {
         val main = File("../desktopApp/src/main/kotlin/main.kt").readText()
-        val startup = main.substringAfter("LaunchedEffect(Unit) {").substringBefore("LaunchedEffect(showDesktopSettings)")
-        assertTrue("checkUpdate(manual = false)" !in startup)
-        assertTrue("showUpdates = false" in main.substringAfter("ApplicationSettingsSheet("))
+        val updateService = File("src/commonMain/kotlin/org/olcbox/app/update/AppUpdateService.kt").readText()
+        assertTrue("https://github.com/huKM565/multilane" in updateService)
+        assertTrue("showUpdates = true" in main.substringAfter("ApplicationSettingsSheet("))
     }
 
     @Test
     fun windowsDataDoesNotShareTheGhostlaneDirectory() {
         val oldOs = System.getProperty("os.name")
         val oldHome = System.getProperty("user.home")
-        val home = Files.createTempDirectory("ilyukhaline-home")
+        val home = Files.createTempDirectory("multilane-home")
         try {
             System.setProperty("os.name", "Windows 11")
             System.setProperty("user.home", home.toString())
             val root = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }
                 ?.let { java.nio.file.Path.of(it) }
                 ?: home.resolve("AppData").resolve("Roaming")
-            assertEquals(root.resolve("IlyukhaLine"), DesktopPaths.appDataDir())
+            assertEquals(root.resolve("MultiLane"), DesktopPaths.appDataDir())
         } finally {
             System.setProperty("os.name", oldOs)
             System.setProperty("user.home", oldHome)
@@ -49,7 +49,7 @@ class DesktopBrandingTest {
 
     @Test
     fun linuxDataDoesNotShareTheGhostlaneDirectory() = withLinuxHome { home ->
-        assertEquals(home.resolve(".ilyukhaline"), DesktopPaths.appDataDir())
+        assertEquals(home.resolve(".multilane"), DesktopPaths.appDataDir())
     }
 
     @Test
@@ -69,7 +69,7 @@ class DesktopBrandingTest {
             assertEquals("data-$name", Files.readString(source.resolve(name)))
         }
         assertFalse(Files.exists(target.resolve("runtime")))
-        assertTrue(Files.exists(target.resolve(".ilyukhaline-import-complete")))
+        assertTrue(Files.exists(target.resolve(".multilane-import-complete")))
     }
 
     @Test
@@ -82,7 +82,7 @@ class DesktopBrandingTest {
         val target = DesktopPaths.appDataDir()
         Files.writeString(target.resolve("locations_v4.json"), "custom")
         Files.delete(target.resolve("device_identity"))
-        Files.delete(target.resolve(".ilyukhaline-import-complete"))
+        Files.delete(target.resolve(".multilane-import-complete"))
 
         DesktopPaths.appDataDir()
 

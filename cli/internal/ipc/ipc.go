@@ -16,9 +16,9 @@ import (
 	"github.com/ghostlane-project/ghostlane/cli/internal/links"
 )
 
-const DefaultSocketPath = "/run/ghostlane/ghostlane.sock"
+const DefaultSocketPath = "/run/multilane/multilane.sock"
 
-var ErrDaemonDown = errors.New("the ghostlane daemon is not running (systemctl start ghostlane, or run `ghostlane run` where there is no systemd)")
+var ErrDaemonDown = errors.New("the multilane-cli daemon is not running (systemctl start multilane-cli, or run `multilane-cli run` where there is no systemd)")
 
 type Request struct {
 	Verb         string `json:"verb"`
@@ -63,6 +63,8 @@ type Status struct {
 	Since         string             `json:"since,omitempty"`
 	LastError     string             `json:"last_error,omitempty"`
 	Line          *EntryView         `json:"line,omitempty"`
+	RoomsUp       int                `json:"rooms_up,omitempty"`
+	RoomsTotal    int                `json:"rooms_total,omitempty"`
 	Proxy         *ProxyView         `json:"proxy,omitempty"`
 	Subscriptions []SubscriptionView `json:"subscriptions,omitempty"`
 }

@@ -31,7 +31,7 @@ func TestFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lines := DecodeBody(got); len(lines) != 1 || headers.UpdateIntervalHours != 2 || ua != "Ghostlane-cli/0.0.1 (linux)" {
+	if lines := DecodeBody(got); len(lines) != 1 || headers.UpdateIntervalHours != 2 || ua != "MultiLane-cli/0.0.1 (linux)" {
 		t.Fatalf("lines=%v headers=%+v ua=%q", lines, headers, ua)
 	}
 	if _, _, err = Fetch(context.Background(), srv.Client(), srv.URL+"/sub/a/b", "x", Device{}); err == nil {
@@ -91,7 +91,7 @@ func TestFetchNamesTheDevice(t *testing.T) {
 	seen := host.request()
 	for name, want := range map[string]string{
 		"x-hwid": dev.ID, "x-device-os": "Linux", "x-ver-os": "6.12.0-116.el10.x86_64", "x-device-model": "PC",
-		"User-Agent": "Ghostlane-cli/0.0.1 (linux)", "Accept": "text/plain, */*",
+		"User-Agent": "MultiLane-cli/0.0.1 (linux)", "Accept": "text/plain, */*",
 	} {
 		if got := seen.Get(name); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)

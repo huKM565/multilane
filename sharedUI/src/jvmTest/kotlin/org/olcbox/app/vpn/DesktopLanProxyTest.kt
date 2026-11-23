@@ -90,7 +90,7 @@ class DesktopLanProxyTest {
         val first = DesktopSocksProxySettings(username = "core", password = "core-secret")
             .withGeneratedLanCredentials()
         val second = first.withGeneratedLanCredentials()
-        assertTrue(first.lanUsername.startsWith("ghostlane-"))
+        assertTrue(first.lanUsername.startsWith("multilane-"))
         assertTrue(first.lanUsername.length <= DesktopSocksProxySettings.MAX_CREDENTIAL_LENGTH)
         assertEquals(24, first.lanPassword.length)
         assertNotEquals(first.lanPassword, second.lanPassword)

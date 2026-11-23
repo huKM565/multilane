@@ -2799,7 +2799,7 @@ class OlcboxVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "Ghostlane VPN",
+                "MultiLane VPN",
                 NotificationManager.IMPORTANCE_LOW
             )
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
@@ -2833,11 +2833,16 @@ class OlcboxVpnService : VpnService() {
 
     private fun localized(text: String): String = notificationWords[text] ?: text
 
+    private fun notificationSmallIconRes(): Int =
+        resources.getIdentifier("ic_qs_tile", "mipmap", packageName)
+            .takeIf { it != 0 }
+            ?: android.R.drawable.ic_dialog_info
+
     private fun buildNotification(status: String) =
         NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(localized("ИлюхаLine ${activeModeLabel()}"))
+            .setContentTitle(localized("MultiLane ${activeModeLabel()}"))
             .setContentText(localized(status))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(notificationSmallIconRes())
             .setOngoing(true)
             .setContentIntent(getAppPendingIntent())
             .addAction(
@@ -3187,6 +3192,6 @@ private val NOTIFICATION_TEXTS: Map<String, StringResource> = mapOf(
     "Split tunneling error" to Res.string.notification_split_error,
     "Add a location first" to Res.string.blocked_no_location,
     "Pick a server" to Res.string.blocked_no_server_picked,
-    "ИлюхаLine Proxy" to Res.string.notification_title_proxy,
+    "MultiLane Proxy" to Res.string.notification_title_proxy,
     "Stop" to Res.string.notification_stop
 )

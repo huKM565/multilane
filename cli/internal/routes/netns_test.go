@@ -41,7 +41,7 @@ func TestNetnsOwnAddressRulesAndCleanup(t *testing.T) {
 	a6, _ := netlink.ParseAddr("2001:db8::7/64")
 	_ = netlink.AddrAdd(link, a6)
 
-	m := New("ghostlane0")
+	m := New("multilane0")
 	addrs, err := m.GlobalAddresses()
 	if err != nil || len(addrs) != 2 {
 		t.Fatalf("%v %v", addrs, err)
@@ -107,7 +107,7 @@ func TestNetnsKillSwitchRules(t *testing.T) {
 	if !netnstest.Enter(t) {
 		return
 	}
-	m := New("ghostlane0")
+	m := New("multilane0")
 	for i := 0; i < 2; i++ { // twice: no duplicates
 		if err := m.InstallKillSwitch(998); err != nil {
 			t.Fatal(err)

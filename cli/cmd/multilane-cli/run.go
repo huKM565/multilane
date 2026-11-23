@@ -33,13 +33,13 @@ func runDaemon(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	socket := fs.String("socket", ipc.DefaultSocketPath, "control socket path")
-	stateDir := fs.String("state-dir", defaultStateDir(os.Getenv), "state directory (config.yaml lives here; GHOSTLANE_STATE_DIR)")
+	stateDir := fs.String("state-dir", defaultStateDir(os.Getenv), "state directory (config.yaml lives here; MULTILANE_STATE_DIR)")
 	subscription := fs.String("subscription", "", "add this list at start (containers)")
 	selector := fs.String("connect", "", "connect this selector at start (containers)")
 	mode := fs.String("mode", "proxy", "tun | proxy, with --connect")
 	killSwitch := fs.Bool("kill-switch", false, "with --mode tun: refuse traffic outside the tunnel while no line is up")
 	probeURL := fs.String("probe-url", "http://cp.cloudflare.com/generate_204", "liveness probe through the tunnel")
-	directRules := fs.String("direct-rules", "/etc/ghostlane-direct.rules", "optional direct rules file (domain:/full:/CIDR per line)")
+	directRules := fs.String("direct-rules", defaultDirectRulesPath(), "optional direct rules file (domain:/full:/CIDR per line)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -121,7 +121,7 @@ func runDaemon(args []string, stderr io.Writer) int {
 	})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	logf("ghostlane %s starting (uid %d, state %s)", version, os.Getuid(), *stateDir)
+	logf("multilane-cli %s starting (uid %d, state %s)", version, os.Getuid(), *stateDir)
 	if err := d.Run(ctx); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -153,24 +153,33 @@ func decryptor() links.Decryptor {
 	return func(blob string) ([]byte, bool) { return crypt1.Decrypt(master, blob) }
 }
 
-// applyProxyEnv applies GHOSTLANE_PROXY_LISTEN/_PORT/_USER/_PASS to the
-// config (containers set the proxy this way). A listen that is not loopback
-// needs credentials, or the proxy would be open to whoever reaches the port.
+func firstEnv(getenv func(string) string, keys ...string) string {
+	for _, k := range keys {
+		if v := getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func applyProxyEnv(cfg *store.Config, getenv func(string) string) (bool, error) {
-	listen, port, user, pass := getenv("GHOSTLANE_PROXY_LISTEN"), getenv("GHOSTLANE_PROXY_PORT"), getenv("GHOSTLANE_PROXY_USER"), getenv("GHOSTLANE_PROXY_PASS")
+	listen := firstEnv(getenv, "MULTILANE_PROXY_LISTEN", "GHOSTLANE_PROXY_LISTEN")
+	port := firstEnv(getenv, "MULTILANE_PROXY_PORT", "GHOSTLANE_PROXY_PORT")
+	user := firstEnv(getenv, "MULTILANE_PROXY_USER", "GHOSTLANE_PROXY_USER")
+	pass := firstEnv(getenv, "MULTILANE_PROXY_PASS", "GHOSTLANE_PROXY_PASS")
 	if listen == "" && port == "" && user == "" && pass == "" {
 		return false, nil
 	}
 	if listen != "" {
 		if net.ParseIP(listen) == nil {
-			return false, fmt.Errorf("GHOSTLANE_PROXY_LISTEN must be an IP address (127.0.0.1, ::1 or 0.0.0.0), not %q", listen)
+			return false, fmt.Errorf("MULTILANE_PROXY_LISTEN must be an IP address (127.0.0.1, ::1 or 0.0.0.0), not %q", listen)
 		}
 		cfg.Proxy.Listen = listen
 	}
 	if port != "" {
 		n, err := strconv.Atoi(port)
 		if err != nil || n < 1 || n > 65535 {
-			return false, fmt.Errorf("GHOSTLANE_PROXY_PORT must be a port number, not %q", port)
+			return false, fmt.Errorf("MULTILANE_PROXY_PORT must be a port number, not %q", port)
 		}
 		cfg.Proxy.Port = n
 	}
@@ -178,16 +187,26 @@ func applyProxyEnv(cfg *store.Config, getenv func(string) string) (bool, error) 
 		cfg.Proxy.User, cfg.Proxy.Pass = user, pass
 	}
 	if ip := net.ParseIP(cfg.Proxy.Listen); ip != nil && !ip.IsLoopback() && (cfg.Proxy.User == "" || cfg.Proxy.Pass == "") {
-		return false, fmt.Errorf("a proxy on %s is reachable from the network: set GHOSTLANE_PROXY_USER and GHOSTLANE_PROXY_PASS", cfg.Proxy.Listen)
+		return false, fmt.Errorf("a proxy on %s is reachable from the network: set MULTILANE_PROXY_USER and MULTILANE_PROXY_PASS", cfg.Proxy.Listen)
 	}
 	return true, nil
 }
 
-// defaultStateDir is GHOSTLANE_STATE_DIR when set (the Docker image sets it to
-// /data, the volume), else the package's directory.
 func defaultStateDir(getenv func(string) string) string {
-	if d := getenv("GHOSTLANE_STATE_DIR"); d != "" {
+	if d := firstEnv(getenv, "MULTILANE_STATE_DIR", "GHOSTLANE_STATE_DIR"); d != "" {
 		return d
 	}
-	return "/var/lib/ghostlane"
+	return "/var/lib/multilane"
+}
+
+func defaultDirectRulesPath() string {
+	const primary = "/etc/multilane-direct.rules"
+	if _, err := os.Stat(primary); err == nil {
+		return primary
+	}
+	const legacy = "/etc/ghostlane-direct.rules"
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return primary
 }

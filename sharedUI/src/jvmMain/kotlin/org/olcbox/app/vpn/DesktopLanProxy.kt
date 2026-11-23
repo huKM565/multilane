@@ -102,19 +102,18 @@ internal class DesktopLanProxy(private val onOutput: (String) -> Unit) {
     }
 
     private fun addWindowsFirewallRule(host: String, port: Int) {
-        val rule = "Ghostlane-LAN-${java.util.UUID.randomUUID()}"
+        val rule = "MultiLane-LAN-${java.util.UUID.randomUUID()}"
         val program = DesktopNativeAssets.resolveSingBoxBinary().toAbsolutePath().normalize().toString()
-        val script = "New-NetFirewallRule -Name '$rule' -DisplayName 'Ghostlane LAN SOCKS5' " +
+        val script = "New-NetFirewallRule -Name '$rule' -DisplayName 'MultiLane LAN SOCKS5' " +
             "-Direction Inbound -Action Allow -Protocol TCP -LocalAddress '$host' -LocalPort $port " +
             "-RemoteAddress LocalSubnet -Profile Private -Program '${program.replace("'", "''")}' | Out-Null"
-        // Keep the name before executing: PowerShell may create the rule and time out afterwards.
         firewallRule = rule
         firewall(script)
     }
 
     private fun cleanupStaleWindowsFirewallRules() {
         firewall(
-            "Get-NetFirewallRule -Name 'Ghostlane-LAN-*' -ErrorAction SilentlyContinue | " +
+            "Get-NetFirewallRule -Name 'MultiLane-LAN-*','Ghostlane-LAN-*' -ErrorAction SilentlyContinue | " +
                 "Remove-NetFirewallRule -ErrorAction Stop"
         )
     }
@@ -187,7 +186,7 @@ internal class DesktopLanProxy(private val onOutput: (String) -> Unit) {
 
         internal fun isVirtualAdapter(name: String): Boolean = name.contains(
             Regex(
-                "(?i)wintun|wireguard|tun2socks|tap-windows|ghostlane|olcbox|" +
+                "(?i)wintun|wireguard|tun2socks|tap-windows|multilane|ghostlane|olcbox|" +
                     "docker|(^|[^a-z])br-|vbox|virtualbox|vmnet|vmware|vEthernet|wsl|hyper-v|" +
                     "tailscale|zerotier"
             )

@@ -11,7 +11,7 @@ class DesktopVpnManagerWindowsTest {
         val retry = windowsTunInterfaceName("aaaaaaaa", 1, 1)
         val nextProcess = windowsTunInterfaceName("bbbbbbbb", 1, 0)
 
-        assertEquals("Ghostlane-aaaaaaaa-1-1", first)
+        assertEquals("MultiLane-aaaaaaaa-1-1", first)
         assertNotEquals(first, retry)
         assertNotEquals(first, nextProcess)
     }

@@ -731,7 +731,7 @@ class HomeScreenViewModel(
     private fun updateLocationConfig(block: (LocationConfig) -> LocationConfig) {
         _state.update { it.copy(configData = block(it.configData)) }
     }
-    fun suggestedLogsFileName(): String = "ghostlane-logs.txt"
+    fun suggestedLogsFileName(): String = "multilane-logs.txt"
 
     /** What a sheet copies for the user: the platform's clipboard, with no message of its own. */
     fun copyToClipboard(text: String) = configImporter.copyToClipboard(text)
@@ -1003,7 +1003,7 @@ class HomeScreenViewModel(
 
     private suspend fun buildLogsExport(logs: List<String>): String {
         return buildString {
-            appendLine("Ghostlane application logs")
+            appendLine("MultiLane application logs")
             appendLine("Entries: ${logs.size}")
             appendLine()
             logs.forEachIndexed { index, line ->

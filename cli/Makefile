@@ -22,7 +22,7 @@ singbox-src: $(SINGBOX_SRC)/.ghostlane-patched
 
 .PHONY: build test vet lint
 build: singbox-src
-	$(GO) build -trimpath -tags $(TAGS) -ldflags '$(LDFLAGS)' -o dist/ghostlane ./cmd/ghostlane
+	$(GO) build -trimpath -tags $(TAGS) -ldflags '$(LDFLAGS)' -o dist/multilane-cli ./cmd/multilane-cli
 test: singbox-src
 	$(GO) test -tags $(TAGS) ./...
 vet: singbox-src
@@ -37,41 +37,37 @@ build-all: singbox-src
 	@for a in $(ARCHES); do \
 	  goarch=$$a; goarm=; if [ "$$a" = arm7 ]; then goarch=arm; goarm=7; fi; \
 	  echo "== $$a"; \
-	  GOOS=linux GOARCH=$$goarch GOARM=$$goarm $(GO) build -trimpath -tags $(TAGS) -ldflags '$(LDFLAGS)' -o dist/linux-$$a/ghostlane ./cmd/ghostlane || exit 1; \
+	  GOOS=linux GOARCH=$$goarch GOARM=$$goarm $(GO) build -trimpath -tags $(TAGS) -ldflags '$(LDFLAGS)' -o dist/linux-$$a/multilane-cli ./cmd/multilane-cli || exit 1; \
 	done
 
-# nfpm expands no variables inside contents[].src, so the spec is templated per arch.
 package: build-all
 	@for a in $(ARCHES); do \
 	  sed "s/\$${GOARCH}/$$a/g; s/\$${VERSION}/$(VERSION)/g" packaging/nfpm.yaml > dist/nfpm-$$a.yaml; \
 	  for f in $(FORMATS); do \
 	    ext=$$f; [ "$$f" = archlinux ] && ext=pkg.tar.zst; \
 	    echo "== $$f $$a"; \
-	    $(NFPM) package -p $$f -f dist/nfpm-$$a.yaml -t dist/ghostlane-cli-$(VERSION)-linux-$$a.$$ext || exit 1; \
+	    $(NFPM) package -p $$f -f dist/nfpm-$$a.yaml -t dist/multilane-cli-$(VERSION)-linux-$$a.$$ext || exit 1; \
 	  done; \
 	done
 
 tarballs: build-all
 	@for a in $(ARCHES); do \
 	  stage=dist/stage-$$a; rm -rf $$stage; mkdir -p $$stage; \
-	  command cp -f dist/linux-$$a/ghostlane packaging/ghostlane.service packaging/README.md LICENSE COPYRIGHT $$stage/; \
-	  command cp -f packaging/openrc/ghostlane $$stage/ghostlane.openrc; \
-	  tar -C $$stage -czf dist/ghostlane-cli-$(VERSION)-linux-$$a.tar.gz .; rm -rf $$stage; \
+	  command cp -f dist/linux-$$a/multilane-cli packaging/multilane-cli.service packaging/README.md LICENSE COPYRIGHT $$stage/; \
+	  command cp -f packaging/openrc/multilane-cli $$stage/multilane-cli.openrc; \
+	  tar -C $$stage -czf dist/multilane-cli-$(VERSION)-linux-$$a.tar.gz .; rm -rf $$stage; \
 	done
 
 sums:
-	cd dist && sha256sum ghostlane-cli-$(VERSION)-linux-* > ghostlane-cli-$(VERSION)-SHA256SUMS
+	cd dist && sha256sum multilane-cli-$(VERSION)-linux-* > multilane-cli-$(VERSION)-SHA256SUMS
 
 dist: package tarballs sums
 
-# The Docker image holds the released tarballs' binaries (stage.sh), nothing
-# built separately. docker-image builds and loads this machine's platform as
-# ghostlane-cli:dev; the release pushes every platform.
 docker-stage: tarballs
 	sh packaging/docker/stage.sh dist $(VERSION)
 
 docker-image: docker-stage
-	docker buildx build --load -t ghostlane-cli:dev -f packaging/docker/Dockerfile .
+	docker buildx build --load -t multilane-cli:dev -f packaging/docker/Dockerfile .
 
 clean:
 	rm -rf dist $(SINGBOX_SRC)
@@ -79,8 +75,8 @@ clean:
 .PHONY: sign
 sign:
 	test -n "$(KEY)" || (echo "KEY=<ed25519 private key pem> is required" && exit 1)
-	openssl pkeyutl -sign -inkey $(KEY) -rawin -in dist/ghostlane-cli-$(VERSION)-SHA256SUMS -out dist/ghostlane-cli-$(VERSION)-SHA256SUMS.sig
-	openssl pkeyutl -verify -pubin -inkey packaging/cli-release.pub.pem -rawin -in dist/ghostlane-cli-$(VERSION)-SHA256SUMS -sigfile dist/ghostlane-cli-$(VERSION)-SHA256SUMS.sig
+	openssl pkeyutl -sign -inkey $(KEY) -rawin -in dist/multilane-cli-$(VERSION)-SHA256SUMS -out dist/multilane-cli-$(VERSION)-SHA256SUMS.sig
+	openssl pkeyutl -verify -pubin -inkey packaging/cli-release.pub.pem -rawin -in dist/multilane-cli-$(VERSION)-SHA256SUMS -sigfile dist/multilane-cli-$(VERSION)-SHA256SUMS.sig
 	sed "/^VERSION=/s/__VERSION__/$(VERSION)/" packaging/install.sh > dist/install.sh
 
 # An xray binary at the pinned module version, for the Reality end-to-end test

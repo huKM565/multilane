@@ -13,8 +13,8 @@ import (
 func TestDockerStage(t *testing.T) {
 	dist := t.TempDir()
 	for arch, bin := range map[string]string{"amd64": "A", "arm64": "B", "arm7": "C"} {
-		tgz := tarball(t, map[string]string{"ghostlane": bin, "ghostlane.service": "u", "README.md": "r"})
-		if err := os.WriteFile(filepath.Join(dist, "ghostlane-cli-0.0.1-linux-"+arch+".tar.gz"), tgz, 0o644); err != nil {
+		tgz := tarball(t, map[string]string{"multilane-cli": bin, "multilane-cli.service": "u", "README.md": "r"})
+		if err := os.WriteFile(filepath.Join(dist, "multilane-cli-0.0.1-linux-"+arch+".tar.gz"), tgz, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -23,7 +23,7 @@ func TestDockerStage(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for platform, want := range map[string]string{"linux/amd64": "A", "linux/arm64": "B", "linux/arm/v7": "C"} {
-		p := filepath.Join(dist, "docker", platform, "ghostlane")
+		p := filepath.Join(dist, "docker", platform, "multilane-cli")
 		b, err := os.ReadFile(p)
 		if err != nil || string(b) != want {
 			t.Fatalf("%s: %q %v", platform, b, err)
@@ -32,8 +32,7 @@ func TestDockerStage(t *testing.T) {
 			t.Fatalf("%s: not executable", platform)
 		}
 	}
-	// a missing tarball is an error, not a silent gap in the image
-	_ = os.Remove(filepath.Join(dist, "ghostlane-cli-0.0.1-linux-arm64.tar.gz"))
+	_ = os.Remove(filepath.Join(dist, "multilane-cli-0.0.1-linux-arm64.tar.gz"))
 	if out, err := exec.Command("sh", "../../packaging/docker/stage.sh", dist, "0.0.1").CombinedOutput(); err == nil || !strings.Contains(string(out), "arm64") {
 		t.Fatalf("missing tarball: %v\n%s", err, out)
 	}

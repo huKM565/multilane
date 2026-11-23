@@ -312,6 +312,18 @@ func (b *Session) Credentials() (string, string) {
 	return b.xr.Credentials()
 }
 
+func (b *Session) BondRooms() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	up := 0
+	for _, s := range b.sessions {
+		if s != nil && s.State() == "running" {
+			up++
+		}
+	}
+	return up, len(b.sessions)
+}
+
 func (b *Session) State() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()

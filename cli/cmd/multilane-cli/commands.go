@@ -12,19 +12,19 @@ import (
 	"github.com/ghostlane-project/ghostlane/cli/internal/ipc"
 )
 
-const docsURL = "https://github.com/ghostlane-project/ghostlane/blob/main/docs/cli.md"
+const docsURL = "https://github.com/huKM565/multilane/blob/main/docs/cli.md"
 
-const usage = `ghostlane — Ghostlane for Linux servers and boxes.
-Connects the lines of your subscription — olcRTC rooms (a tunnel inside a
-video call), VLESS Reality, Hysteria2, XHTTP — with failover between them,
+const usage = `multilane-cli — MultiLane for Linux servers and routers.
+Connects the lines of your subscription — olcRTC rooms (including bonded multi-room
+pools), VLESS Reality, Hysteria2, XHTTP — with failover between them,
 and routes the machine through the tunnel: the whole box (tun) or a local
 proxy (proxy).
 
 Usage:
-  ghostlane <command> [arguments] [flags]
+  multilane-cli <command> [arguments] [flags]
 
 Commands:
-  add <source>         Add a subscription: a list URL, a ghostlane:// link, or one olcrtc://, vless:// or hysteria2:// line
+  add <source>         Add a subscription: a list URL, a multilane:// / ghostlane:// link, or one olcrtc://, vless:// or hysteria2:// line
   list                 Every line with its index, country and carrier
   connect <selector>   Connect a country (DE), a label ("DE · SJ") or an index (6); --tun [--kill-switch] or --proxy
   status               What is connected, since when, and the proxy lines to paste
@@ -32,42 +32,42 @@ Commands:
   refresh              Re-fetch every list now
   remove <sub>         Remove a subscription by URL, masked-URL prefix or title
   version              Version, engine and sing-box pins, release signing key
-  run                  The daemon itself (systemd runs it; use directly in containers)
+  run                  The daemon itself (systemd runs it; use directly in containers or routers)
   help [command]       This text, or one command's details and examples
 
 Quick start:
-  ghostlane add 'https://…/sub/…'      # the URL your provider gave you (or one vless:// / hy2:// / olcrtc:// line)
-  ghostlane list
-  ghostlane connect DE --proxy         # SOCKS5 + HTTP on 127.0.0.1:1080, no privileges
-  ghostlane connect DE --tun           # the whole machine; SSH and your services keep working
-  ghostlane status
+  multilane-cli add 'https://…/sub/…'      # the URL your provider gave you (or one vless:// / hy2:// / olcrtc:// line)
+  multilane-cli list
+  multilane-cli connect DE --proxy         # SOCKS5 + HTTP on 127.0.0.1:1080, no privileges
+  multilane-cli connect DE --tun           # the whole machine; SSH and your services keep working
+  multilane-cli status
 
 Global flags:
-  --socket <path>   control socket (default /run/ghostlane/ghostlane.sock)
+  --socket <path>   control socket (default /run/multilane/multilane.sock)
   --json            machine-readable output for list, status and version
 
 Docs: ` + docsURL + `
 `
 
 var commandHelp = map[string]string{
-	"add": `ghostlane add <source>
+	"add": `multilane-cli add <source>
 
 Adds a subscription and fetches it at once. <source> is one of:
   a list URL          https://provider.example/sub/…  (the ?c=olcbox variant of a partner list)
-  a ghostlane:// link ghostlane://add?url=…  or  ghostlane://add/<url>
+  a multilane:// link multilane://add?url=…  or  ghostlane://add/<url>
   one line            'olcrtc://telemost?vp8channel@…#<key>$DE · olcRTC', a vless:// or a
                       hysteria2:// (hy2://) line, as a provider hands them out
 
 The list is refreshed on the interval the provider announces (default every
-24 h) and on 'ghostlane refresh'. The URL is a credential: it is stored
-root-only under /var/lib/ghostlane and never printed in full.
+24 h) and on 'multilane-cli refresh'. The URL is a credential: it is stored
+root-only under /var/lib/multilane and never printed in full.
 
 Examples:
-  ghostlane add 'https://sub.example/sub/a1b2c3/token?c=olcbox'
-  ghostlane add 'olcrtc://wbstream?vp8channel@room_x#<64 hex>$DE · VP8 · WB'
-  ghostlane add 'vless://<uuid>@203.0.113.9:443?type=tcp&security=reality&sni=…&pbk=…&sid=…&flow=xtls-rprx-vision#DE'
+  multilane-cli add 'https://sub.example/sub/a1b2c3/token?c=olcbox'
+  multilane-cli add 'olcrtc://wbstream?vp8channel@room_x#<64 hex>$DE · VP8 · WB'
+  multilane-cli add 'vless://<uuid>@203.0.113.9:443?type=tcp&security=reality&sni=…&pbk=…&sid=…&flow=xtls-rprx-vision#DE'
 `,
-	"list": `ghostlane list [--json]
+	"list": `multilane-cli list [--json]
 
 Shows every line of every subscription: its index (for 'connect <index>'),
 country, kind (olcrtc, vless, hysteria2), carrier and label. A line this
@@ -76,22 +76,22 @@ listed with a note saying why. A list whose provider turned this device away
 has no lines, and the reason is printed under the table.
 
 Example:
-  ghostlane list
+  multilane-cli list
    #   COUNTRY  KIND    CARRIER     LABEL             NOTE
    1   DE       olcrtc  telemost    🇩🇪 DE · VP8
    2   DE       olcrtc  wbstream    🇩🇪 DE · VP8 · WB
 `,
-	"connect": `ghostlane connect <selector> [--tun [--kill-switch] | --proxy] [--subscription <url-prefix>]
+	"connect": `multilane-cli connect <selector> [--tun [--kill-switch] | --proxy] [--subscription <url-prefix>]
 
 <selector> is a country code (all of that country's lines, tried in the
 list's order with failover between them — rooms and servers alike), an
 exact label from 'list' (one line), or an index from 'list'. Lists whose
 labels carry no country code (city names) are selected by label or index.
 
-Which core carries what: olcRTC rooms run in the engine, XHTTP lines in
-Xray-core, VLESS Reality and Hysteria2 in sing-box itself. In tun mode a
-Reality or Hysteria2 server is proven through a local proxy first, so a dead
-server never gets the tun.
+Which core carries what: olcRTC rooms run in the engine, bonded multi-room
+profiles and XHTTP lines in Xray-core, VLESS Reality and Hysteria2 in sing-box
+itself. In tun mode a Reality or Hysteria2 server is proven through a local
+proxy first, so a dead server never gets the tun.
 
   --proxy   (default) a local SOCKS5 + HTTP proxy on 127.0.0.1:1080; needs no
             privileges; 'status' prints the environment lines to paste.
@@ -114,55 +114,55 @@ list's provider turns this device away, the connection waits ('status' says
 why) and never moves to another list's line.
 
 Examples:
-  ghostlane connect DE --tun
-  ghostlane connect "🇩🇪 DE · SJ" --proxy
-  ghostlane connect 6
+  multilane-cli connect DE --tun
+  multilane-cli connect "🇩🇪 DE · SJ" --proxy
+  multilane-cli connect 6
 `,
-	"status": `ghostlane status [--json]
+	"status": `multilane-cli status [--json]
 
 Prints the state (idle | connecting | up | failed), the selection and mode,
 the connected line and carrier, since when, the last error, the proxy
 addresses with the export lines to paste, and each subscription with its
 next refresh, traffic quota and last error.
 `,
-	"disconnect": `ghostlane disconnect
+	"disconnect": `multilane-cli disconnect
 
 Stops the tunnel (the tun and its rules go away; traffic flows directly
 again) and clears the stored selection, so nothing reconnects at boot.
 `,
-	"refresh": `ghostlane refresh
+	"refresh": `multilane-cli refresh
 
 Re-fetches every subscription now. A refresh never disconnects by itself;
 if the connected room or key was rotated, the daemon reconnects to the new one.
 A list whose provider turned this device away is named with the reason.
 `,
-	"remove": `ghostlane remove <subscription>
+	"remove": `multilane-cli remove <subscription>
 
 Removes a subscription by its URL, by the masked URL 'status' shows
 (prefix is enough), or by its title. Removing the subscription in use
 disconnects first.
 
 Example:
-  ghostlane remove 'https://sub.example/sub/a1b2c3/'
+  multilane-cli remove 'https://sub.example/sub/a1b2c3/'
 `,
-	"version": `ghostlane version [--json]
+	"version": `multilane-cli version [--json]
 
 Prints the version, the pinned engine and sing-box versions, and the sha256
 of the public key every release is signed with (install.sh verifies against it).
 `,
-	"run": `ghostlane run [--state-dir <dir>] [--socket <path>] [--subscription <url> --connect <selector> --mode tun|proxy [--kill-switch]]
+	"run": `multilane-cli run [--state-dir <dir>] [--socket <path>] [--direct-rules <file>] [--subscription <url> --connect <selector> --mode tun|proxy [--kill-switch]]
 
-The daemon, in the foreground. systemd (or OpenRC) runs it as user ghostlane
-with CAP_NET_ADMIN; in a container run it yourself:
+The daemon, in the foreground. systemd (or OpenRC) runs it as user multilane
+with CAP_NET_ADMIN; in a container or router run it yourself:
 
-  ghostlane run --state-dir /data --subscription 'https://…' --connect DE --mode proxy
+  multilane-cli run --state-dir /data --subscription 'https://…' --connect DE --mode proxy
 
-The proxy is set through the environment in a container: GHOSTLANE_PROXY_LISTEN
-(0.0.0.0 to publish the port), GHOSTLANE_PROXY_PORT, GHOSTLANE_PROXY_USER and
-GHOSTLANE_PROXY_PASS — a listen that is not loopback needs the credentials.
+The proxy is set through the environment in a container: MULTILANE_PROXY_LISTEN
+(0.0.0.0 to publish the port), MULTILANE_PROXY_PORT, MULTILANE_PROXY_USER and
+MULTILANE_PROXY_PASS — a listen that is not loopback needs the credentials.
 For --mode tun the container needs --cap-add NET_ADMIN --device /dev/net/tun.
-Other flags: --probe-url <url> (liveness probe through the tunnel).
-Image: ghcr.io/ghostlane-project/ghostlane-cli (see docs/cli.md).
+Other flags: --probe-url <url> (liveness probe through the tunnel),
+--direct-rules <file> (domain:/full:/CIDR direct rules file).
 `,
 }
 
@@ -205,7 +205,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if v.Crypt1 {
 			crypt = "available"
 		}
-		fmt.Fprintf(stdout, "ghostlane %s\nengine %s\nsing-box %s\nxray-core %s\ncrypt1 lists %s\nrelease signing key sha256 %s\n", v.Version, v.Engine, v.SingBox, v.Xray, crypt, releasePubKeyFingerprint())
+		fmt.Fprintf(stdout, "multilane-cli %s\nengine %s\nsing-box %s\nxray-core %s\ncrypt1 lists %s\nrelease signing key sha256 %s\n", v.Version, v.Engine, v.SingBox, v.Xray, crypt, releasePubKeyFingerprint())
 		return 0
 	case "add", "list", "connect", "disconnect", "status", "refresh", "remove":
 		if len(rest) > 0 && (rest[0] == "-h" || rest[0] == "--help") {
@@ -342,6 +342,9 @@ func printStatus(w io.Writer, st *ipc.Status) {
 		}
 		fmt.Fprintln(w)
 	}
+	if st.RoomsTotal > 0 {
+		fmt.Fprintf(w, "Rooms:     %d/%d up\n", st.RoomsUp, st.RoomsTotal)
+	}
 	if st.Since != "" {
 		fmt.Fprintf(w, "Since:     %s\n", st.Since)
 	}
@@ -380,7 +383,7 @@ func printList(w io.Writer, entries []ipc.EntryView, note string) {
 	}
 	_ = tw.Flush()
 	if len(entries) == 0 && note == "" {
-		fmt.Fprintln(w, "(no lines; ghostlane add <url>)")
+		fmt.Fprintln(w, "(no lines; multilane-cli add <url>)")
 	}
 	if note != "" {
 		fmt.Fprintln(w, note)

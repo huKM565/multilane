@@ -22,7 +22,7 @@ const (
 
 	TableIndex = 2022
 	RuleIndex  = 9000
-	TunName    = "ghostlane0"
+	TunName    = "multilane0"
 )
 
 // Upstream is where the front sends traffic: an engine's loopback SOCKS

@@ -14,15 +14,15 @@ class AndroidBrandingTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
-    fun installedAppUsesIlyukhaLineLabelNotificationAndLauncherIcon() {
+    fun installedAppUsesMultiLaneLabelNotificationAndLauncherIcon() {
         val packageManager = context.packageManager
         val applicationInfo = context.applicationInfo
-        assertEquals("ИлюхаLine", applicationInfo.loadLabel(packageManager).toString())
+        assertEquals("MultiLane", applicationInfo.loadLabel(packageManager).toString())
 
         val titleId = context.resources.getIdentifier("notification_title_proxy", "string", context.packageName)
         assertNotEquals(0, titleId)
         val title = context.resources.getString(titleId)
-        assertTrue(title.startsWith("ИлюхаLine"))
+        assertTrue(title.startsWith("MultiLane"))
         assertFalse(title.contains("Ghostlane"))
 
         assertNotEquals(0, applicationInfo.icon)

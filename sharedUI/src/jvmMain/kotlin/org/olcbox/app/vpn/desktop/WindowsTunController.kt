@@ -21,6 +21,7 @@ internal class WindowsTunController(
         ${'$'}route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' |
           Where-Object {
             ${'$'}_.InterfaceAlias -ne '$TUN_NAME' -and
+            ${'$'}_.InterfaceAlias -notlike 'MultiLane-*' -and
             ${'$'}_.InterfaceAlias -notlike 'Ghostlane-*'
           } |
           Sort-Object @{Expression={ ${'$'}_.RouteMetric + (Get-NetIPInterface -InterfaceIndex ${'$'}_.InterfaceIndex -AddressFamily IPv4).InterfaceMetric }} |
@@ -76,7 +77,7 @@ internal class WindowsTunController(
     private suspend fun requestAdministratorRestart() {
         val processInfo = ProcessHandle.current().info()
         val currentCommand = processInfo.command().orElse(null)
-            ?: error("Ghostlane cannot resolve its Windows launcher for administrator restart")
+            ?: error("MultiLane cannot resolve its Windows launcher for administrator restart")
         val currentArguments = processInfo.arguments().orElse(emptyArray()).toList()
         val restartArguments = if (ELEVATED_START_ARGUMENT in currentArguments) {
             currentArguments

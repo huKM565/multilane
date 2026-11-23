@@ -16,14 +16,16 @@ class DesktopBondIntegrationTest {
     private val manager = File("src/jvmMain/kotlin/org/olcbox/app/vpn/DesktopVpnManager.kt").readText()
 
     @Test
-    fun bondedPoolIsForMarkedLinuxAndWindowsTunProfiles() {
+    fun bondedPoolIsForMarkedDesktopProfiles() {
         val bonded = LocationConfig(kind = LocationKind.Olcrtc, bondVlessLink = "vless://test")
         val plain = bonded.copy(bondVlessLink = null)
         assertTrue(isBondedDesktopTun(bonded, DesktopMode.WindowsTun))
         assertTrue(isBondedDesktopTun(bonded, DesktopMode.LinuxTun))
-        assertFalse(isBondedDesktopTun(bonded, DesktopMode.SystemProxy))
+        assertTrue(isBondedDesktopTun(bonded, DesktopMode.MacTun))
+        assertTrue(isBondedDesktopTun(bonded, DesktopMode.SystemProxy))
         assertFalse(isBondedDesktopTun(plain, DesktopMode.WindowsTun))
         assertFalse(isBondedDesktopTun(plain, DesktopMode.LinuxTun))
+        assertFalse(isBondedDesktopTun(plain, DesktopMode.SystemProxy))
     }
 
     @Test
@@ -158,7 +160,7 @@ class DesktopBondIntegrationTest {
             val retry = windowsTunCachePath("session", 1, 1)
             assertNotEquals(first, retry)
             assertTrue(first.fileName.toString().startsWith("windows-tun-cache-"))
-            assertTrue(first.parent.toString().contains("IlyukhaLine"))
+            assertTrue(first.parent.toString().contains("MultiLane"))
         } finally {
             System.setProperty("os.name", oldOs)
         }

@@ -1,5 +1,4 @@
-# One file, four package formats. VERSION and GOARCH come from the environment.
-name: ghostlane-cli
+name: multilane-cli
 arch: "${GOARCH}"
 platform: linux
 version: "${VERSION}"
@@ -7,42 +6,42 @@ version_schema: semver
 release: "1"
 section: net
 priority: optional
-maintainer: "Ghostlane contributors <ghostlane-project@users.noreply.github.com>"
+maintainer: "MultiLane contributors"
 description: |
-  Ghostlane tunnel for Linux servers and boxes.
-  Joins olcRTC rooms (a tunnel inside a video call) with carrier failover and
+  MultiLane tunnel for Linux servers and routers.
+  Joins olcRTC rooms (including bonded multi-room pools) with carrier failover and
   routes the machine through a tun, or serves a local SOCKS5/HTTP proxy.
-vendor: Ghostlane
-homepage: https://github.com/ghostlane-project/ghostlane
+vendor: MultiLane
+homepage: https://github.com/huKM565/multilane
 license: GPL-3.0-or-later
 contents:
-  - src: dist/linux-${GOARCH}/ghostlane
-    dst: /usr/bin/ghostlane
+  - src: dist/linux-${GOARCH}/multilane-cli
+    dst: /usr/bin/multilane-cli
     file_info:
       mode: 0755
-  - src: packaging/ghostlane.service
-    dst: /lib/systemd/system/ghostlane.service
+  - src: packaging/multilane-cli.service
+    dst: /lib/systemd/system/multilane-cli.service
     packager: deb
-  - src: packaging/ghostlane.service
-    dst: /usr/lib/systemd/system/ghostlane.service
+  - src: packaging/multilane-cli.service
+    dst: /usr/lib/systemd/system/multilane-cli.service
     packager: rpm
-  - src: packaging/ghostlane.service
-    dst: /usr/lib/systemd/system/ghostlane.service
+  - src: packaging/multilane-cli.service
+    dst: /usr/lib/systemd/system/multilane-cli.service
     packager: archlinux
-  - src: packaging/ghostlane.service
-    dst: /usr/lib/systemd/system/ghostlane.service
+  - src: packaging/multilane-cli.service
+    dst: /usr/lib/systemd/system/multilane-cli.service
     packager: apk
-  - src: packaging/openrc/ghostlane
-    dst: /etc/init.d/ghostlane
+  - src: packaging/openrc/multilane-cli
+    dst: /etc/init.d/multilane-cli
     packager: apk
     file_info:
       mode: 0755
   - src: packaging/README.md
-    dst: /usr/share/doc/ghostlane-cli/README.md
+    dst: /usr/share/doc/multilane-cli/README.md
   - src: LICENSE
-    dst: /usr/share/doc/ghostlane-cli/LICENSE
+    dst: /usr/share/doc/multilane-cli/LICENSE
   - src: COPYRIGHT
-    dst: /usr/share/doc/ghostlane-cli/COPYRIGHT
+    dst: /usr/share/doc/multilane-cli/COPYRIGHT
 scripts:
   preinstall: packaging/scripts/preinstall.sh
   postinstall: packaging/scripts/postinstall.sh

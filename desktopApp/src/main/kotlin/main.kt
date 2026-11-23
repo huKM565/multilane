@@ -342,6 +342,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
                 dependencies.homeViewModel.ToggleVpn()
             }
         }
+        checkUpdate(manual = false)
     }
 
     // The daemon's state changes without us: the user approves it in System
@@ -388,7 +389,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
             connected = trayConnected
         ),
         // In words as well: a colour is not something everyone tells apart.
-        tooltip = "Ghostlane: " + trayStatus.text() +
+        tooltip = "MultiLane: " + trayStatus.text() +
             if (trayPickServer) " · " + DesktopText.PickServer.text() else "",
         menu = {
             Item(DesktopText.Open.text(), onClick = { isWindowVisible = true })
@@ -413,7 +414,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
 
     val windowState = rememberWindowState(width = 430.dp, height = 780.dp)
     SwingWindow(
-        title = "Ghostlane",
+        title = "MultiLane",
         visible = isWindowVisible,
         state = windowState,
         onCloseRequest = {
@@ -546,7 +547,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
                 if (showDesktopSettings) {
                     ApplicationSettingsSheet(
                         onReplayOnboarding = { dependencies.homeViewModel.replayOnboarding() },
-                        showUpdates = false,
+                        showUpdates = true,
                         updateSettings = updateSettings,
                         updateStatusText = updateMessage,
                         updateDownloadProgress = updateProgress,

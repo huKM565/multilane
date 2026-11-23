@@ -33,7 +33,7 @@ import org.olcbox.app.ui.theme.LocalPkPalette
 
 /** Single source of in-UI brand strings (GeneratedAppInfo.NAME stays "olcbox"). */
 object PkBrand {
-    const val name = "ИлюхаLine"
+    const val name = "MultiLane"
 
     /**
      * Short on purpose. This sits in a centre-aligned app bar, whose title slot
@@ -48,7 +48,7 @@ object PkBrand {
     const val tagline = "decentralized VPN"
 
     /** Where a user with no subscription is sent to get one. */
-    const val siteUrl = "https://proofkit.org"
+    const val siteUrl = "https://github.com/huKM565/multilane"
 }
 
 /**
