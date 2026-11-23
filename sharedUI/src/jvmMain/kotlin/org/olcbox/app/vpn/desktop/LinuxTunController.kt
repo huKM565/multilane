@@ -640,7 +640,7 @@ internal class LinuxTunController(
                 appendLine("  port: 53")
                 appendLine("  network: $MAPDNS_NETWORK")
                 appendLine("  netmask: $MAPDNS_NETMASK")
-                appendLine("  cache-size: 10000")
+                appendLine("  cache-size: 65536")
                 appendLine()
                 appendLine("misc:")
                 appendLine("  task-stack-size: 24576")

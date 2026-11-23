@@ -163,7 +163,7 @@ class OlcboxVpnServiceNativeRunTest {
     @Test
     fun adaptiveBondStartMeasuresActiveRoomsBeforeStartingTheCore() {
         val start = member("startMobileBond")
-        val planner = start.indexOf("val activePlan = planAdaptiveBondCore(")
+        val planner = start.indexOf("val activePlan = planFullPoolAdaptiveBondCore(")
         val core = start.indexOf("bondCorePlan = activePlan")
         val ensured = start.indexOf("coroutineContext.ensureActive()", planner)
 
@@ -178,13 +178,23 @@ class OlcboxVpnServiceNativeRunTest {
     }
 
     @Test
+    fun bondRefreshKeepsRunningFullPoolCoresAliveAcrossRoomChanges() {
+        val body = member("refreshMobileBond")
+
+        assertTrue("val fullPoolRunning = bondBalancedPlan?.roomPorts == bondRoomPorts" in body)
+        assertTrue("if (fullPoolRunning) return@withLock" in body)
+        assertEquals(1, Regex("rebalanceMobileBond\\(").findAll(body).count())
+        assertTrue(body.indexOf("if (fullPoolRunning) return@withLock") < body.indexOf("rebalanceMobileBond("))
+    }
+
+    @Test
     fun bondRebalanceRestoresTheLastWorkingCoreAfterReplacementFailure() {
         val body = member("rebalanceMobileBond")
 
         assertTrue("val previousPlan = bondBalancedPlan" in body)
         val replacement = body.indexOf("bondCorePlan = activePlan")
         val rollback = body.indexOf("bondCorePlan = previousPlan")
-        assertEquals(1, Regex("planAdaptiveBondCore\\(").findAll(body).count())
+        assertEquals(1, Regex("planFullPoolAdaptiveBondCore\\(").findAll(body).count())
         assertTrue(replacement >= 0, "rebalance does not try the new adaptive plan")
         assertTrue(rollback > replacement, "rebalance does not restore the previous working plan after a failure")
         assertTrue("ensureBridge()" in body.substring(rollback), "a restored core on a new port would leave tun2socks on the old one")

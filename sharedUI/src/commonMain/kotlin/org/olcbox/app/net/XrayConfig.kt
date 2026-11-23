@@ -80,6 +80,7 @@ object XrayConfig {
             require(adaptive.expected == minOf(4, roomPorts.size)) { "unexpected adaptive room count" }
             require(adaptive.costs.size == roomPorts.size) { "adaptive costs must match room ports" }
             require(adaptive.costs.all { it.isFinite() && it > 0.0 }) { "adaptive costs must be finite and positive" }
+            require(adaptive.fallbackIndex in roomPorts.indices) { "adaptive fallback index is outside the port list" }
         }
         return buildJsonObject {
             putJsonObject("log") { put("loglevel", if (verboseLogs) "debug" else "warning") }
@@ -154,6 +155,14 @@ object XrayConfig {
             putJsonObject("routing") {
                 put("domainStrategy", "AsIs")
                 putJsonArray("rules") {
+                    if (adaptive != null) {
+                        addJsonObject {
+                            put("type", "field")
+                            putJsonArray("inboundTag") { add("in") }
+                            put("network", "udp")
+                            put("balancerTag", "bond-udp")
+                        }
+                    }
                     addJsonObject {
                         put("type", "field")
                         putJsonArray("inboundTag") { add("in") }
@@ -161,6 +170,17 @@ object XrayConfig {
                     }
                 }
                 putJsonArray("balancers") {
+                    if (adaptive != null) {
+                        val fallbackTag = "vless-room-${adaptive.fallbackIndex + 1}"
+                        addJsonObject {
+                            put("tag", "bond-udp")
+                            putJsonArray("selector") {
+                                roomPorts.indices.forEach { add("vless-room-${it + 1}") }
+                            }
+                            put("fallbackTag", fallbackTag)
+                            putJsonObject("strategy") { put("type", "leastPing") }
+                        }
+                    }
                     addJsonObject {
                         put("tag", "bond")
                         putJsonArray("selector") {
@@ -169,7 +189,7 @@ object XrayConfig {
                         if (adaptive == null) {
                             putJsonObject("strategy") { put("type", "roundRobin") }
                         } else {
-                            put("fallbackTag", "vless-room-1")
+                            put("fallbackTag", "vless-room-${adaptive.fallbackIndex + 1}")
                             putJsonObject("strategy") {
                                 put("type", "leastLoad")
                                 putJsonObject("settings") {
@@ -198,7 +218,7 @@ object XrayConfig {
                         roomPorts.indices.forEach { add("vless-room-${it + 1}") }
                     }
                     put("probeUrl", "https://connectivitycheck.gstatic.com/generate_204")
-                    put("probeInterval", "15s")
+                    put("probeInterval", "8s")
                     put("enableConcurrency", true)
                 }
             }

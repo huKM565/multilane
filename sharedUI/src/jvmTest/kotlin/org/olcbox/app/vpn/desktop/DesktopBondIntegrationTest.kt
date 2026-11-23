@@ -117,7 +117,7 @@ class DesktopBondIntegrationTest {
     @Test
     fun initialBondMeasuresActiveRoomsAndPassesOneAdaptivePlanToXray() {
         val body = section("private suspend fun startDesktopBond", "private suspend fun refreshDesktopBond")
-        val planner = body.indexOf("val activePlan = planAdaptiveBondCore(")
+        val planner = body.indexOf("val activePlan = planFullPoolAdaptiveBondCore(")
         val xray = body.indexOf("xrayCore.start")
 
         assertTrue(planner >= 0, "desktop bond does not measure its initial active rooms")
@@ -128,11 +128,21 @@ class DesktopBondIntegrationTest {
     }
 
     @Test
+    fun refreshKeepsRunningFullPoolCoresWithoutRestartingOnRoomChanges() {
+        val body = section("private suspend fun refreshDesktopBond", "private suspend fun recoverDesktopBondRooms")
+
+        assertTrue("val fullPoolRunning = desktopBalancedPlan?.roomPorts == bond.rooms.map { it.port }" in body)
+        assertTrue("if (fullPoolRunning) return true" in body)
+        assertEquals(1, Regex("rebalanceDesktopBond\\(").findAll(body).count())
+        assertTrue(body.indexOf("if (fullPoolRunning) return true") < body.indexOf("rebalanceDesktopBond("))
+    }
+
+    @Test
     fun rebalanceUsesAnActiveRoomSnapshotAndRestoresTheLastWorkingPlan() {
         val body = section("private suspend fun rebalanceDesktopBond", "private fun allocateBondPort")
 
         assertTrue("val previousPlan = desktopBalancedPlan" in body)
-        assertEquals(1, Regex("planAdaptiveBondCore\\(").findAll(body).count())
+        assertEquals(1, Regex("planFullPoolAdaptiveBondCore\\(").findAll(body).count())
         assertTrue("suspend fun startCores(plan: BondCorePlan" in body)
         assertTrue("startCores(activePlan, \"rebalanced\")" in body)
         assertTrue("startCores(previousPlan, \"restored\")" in body)

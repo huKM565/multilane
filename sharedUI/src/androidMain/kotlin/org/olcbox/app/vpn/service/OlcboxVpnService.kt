@@ -84,7 +84,7 @@ import org.olcbox.app.net.HttpBondRoomProbe
 import org.olcbox.app.net.bondPlanLogLines
 import org.olcbox.app.net.LocationKind
 import org.olcbox.app.net.OlcRtcBond
-import org.olcbox.app.net.planAdaptiveBondCore
+import org.olcbox.app.net.planFullPoolAdaptiveBondCore
 import org.olcbox.app.net.planBondPaths
 import org.olcbox.app.net.OlcrtcDirectRules
 import org.olcbox.app.net.OlcrtcDtls
@@ -1532,7 +1532,7 @@ class OlcboxVpnService : VpnService() {
                 return false
             }
             coroutineContext.ensureActive()
-            val activePlan = planAdaptiveBondCore(
+            val activePlan = planFullPoolAdaptiveBondCore(
                 activeRooms,
                 ports,
                 HttpBondRoomProbe(socksUsername, socksPassword),
@@ -2030,15 +2030,17 @@ class OlcboxVpnService : VpnService() {
             OlcboxVpnState.setBondRooms(activeRooms)
             bond.requestOccupancy()
             if (activeRooms.isEmpty()) return@withLock
-            if (activeRooms != bondBalancedRooms && !rebalanceMobileBond(location, activeRooms)) {
-                return@withLock
-            }
 
             activeRooms = bond.recover(OLCRTC_READY_TIMEOUT_MS.toInt()) { !current() }
             if (!current()) return@withLock
             OlcboxVpnState.setBondRooms(activeRooms)
             bond.requestOccupancy()
-            if (activeRooms.isEmpty() || activeRooms == bondBalancedRooms) return@withLock
+            if (activeRooms.isEmpty()) return@withLock
+            bondBalancedRooms = activeRooms
+            val fullPoolRunning = bondBalancedPlan?.roomPorts == bondRoomPorts &&
+                singBoxCore.isRunning() &&
+                xrayCore.isRunning()
+            if (fullPoolRunning) return@withLock
             rebalanceMobileBond(location, activeRooms)
         }
     }
@@ -2046,7 +2048,7 @@ class OlcboxVpnService : VpnService() {
     private suspend fun rebalanceMobileBond(location: LocationConfig, activeRooms: List<Int>): Boolean {
         val upstream = findActiveUpstreamNetwork() ?: return false
         val previousPlan = bondBalancedPlan ?: return false
-        val activePlan = planAdaptiveBondCore(
+        val activePlan = planFullPoolAdaptiveBondCore(
             activeRooms,
             bondRoomPorts,
             HttpBondRoomProbe(socksUsername, socksPassword),

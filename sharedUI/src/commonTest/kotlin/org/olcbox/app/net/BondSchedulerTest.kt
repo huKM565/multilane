@@ -137,6 +137,24 @@ class BondSchedulerTest {
     }
 
     @Test
+    fun fullPoolAdaptivePlanKeepsAllPortsWithNeutralCostForWarmingRooms() = runTest {
+        val probe = object : BondRoomProbe {
+            override suspend fun measure(target: BondRoomTarget): BondRoomSample? = when (target.index) {
+                1 -> sample(1, 100.0)
+                3 -> sample(3, 200.0)
+                else -> fail("inactive room ${target.index} was measured")
+            }
+        }
+
+        val plan = planFullPoolAdaptiveBondCore(listOf(1, 3), listOf(21081, 21082, 21083, 21084), probe)
+
+        assertEquals(listOf(0, 1, 2, 3), plan.roomIndexes)
+        assertEquals(listOf(21081, 21082, 21083, 21084), plan.roomPorts)
+        assertEquals(listOf(null, 1, null, 3), plan.samples.map { it?.index })
+        assertEquals(BondScheduling(4, listOf(1.0, 1.5, 1.0, 0.75), fallbackIndex = 1), plan.scheduling)
+    }
+
+    @Test
     fun measurementLogsContainOnlyPublicIndexesAndNumericMetrics() {
         val plan = BondCorePlan(
             roomIndexes = listOf(0, 2),

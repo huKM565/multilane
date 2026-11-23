@@ -149,7 +149,26 @@ class XrayConfigBondTest {
         assertEquals(baseline["inbounds"], root["inbounds"])
         assertEquals(baseline["outbounds"], root["outbounds"])
         assertEquals(null, baseline["observatory"])
-        val balancer = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.single().jsonObject
+        val routing = root["routing"]!!.jsonObject
+        val rules = routing["rules"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(2, rules.size)
+        assertEquals("udp", rules[0]["network"]!!.jsonPrimitive.content)
+        assertEquals("bond-udp", rules[0]["balancerTag"]!!.jsonPrimitive.content)
+        assertEquals("bond", rules[1]["balancerTag"]!!.jsonPrimitive.content)
+
+        val balancers = routing["balancers"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(2, balancers.size)
+        val udpBalancer = balancers[0]
+        assertEquals("bond-udp", udpBalancer["tag"]!!.jsonPrimitive.content)
+        assertEquals("leastPing", udpBalancer["strategy"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("vless-room-1", udpBalancer["fallbackTag"]!!.jsonPrimitive.content)
+        assertEquals(
+            (1..12).map { "vless-room-$it" },
+            udpBalancer["selector"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+
+        val balancer = balancers[1]
+        assertEquals("bond", balancer["tag"]!!.jsonPrimitive.content)
         assertEquals("leastLoad", balancer["strategy"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         val settings = balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject
         assertEquals(4, settings["expected"]!!.jsonPrimitive.content.toInt())
@@ -172,7 +191,7 @@ class XrayConfigBondTest {
             "https://connectivitycheck.gstatic.com/generate_204",
             observatory["probeUrl"]!!.jsonPrimitive.content,
         )
-        assertEquals("15s", observatory["probeInterval"]!!.jsonPrimitive.content)
+        assertEquals("8s", observatory["probeInterval"]!!.jsonPrimitive.content)
         assertEquals(true, observatory["enableConcurrency"]!!.jsonPrimitive.content.toBoolean())
     }
 
@@ -187,7 +206,8 @@ class XrayConfigBondTest {
             )
         ).jsonObject
 
-        val balancer = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.single().jsonObject
+        val balancers = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.map { it.jsonObject }
+        val balancer = balancers.single { it["tag"]!!.jsonPrimitive.content == "bond" }
         assertEquals(3, balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject["expected"]!!
             .jsonPrimitive.content.toInt())
         assertEquals("vless-room-1", balancer["fallbackTag"]!!.jsonPrimitive.content)
@@ -200,11 +220,28 @@ class XrayConfigBondTest {
             root["observatory"]!!.jsonObject["subjectSelector"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
 
+    @Test fun adaptiveBondUsesConfiguredFallbackIndexForBothBalancers() {
+        val root = Json.parseToJsonElement(
+            XrayConfig.buildVlessBond(
+                spec,
+                roomPorts = listOf(21081, 21082, 21083, 21084),
+                roomUsername = "u",
+                roomPassword = "p",
+                adaptive = BondScheduling(4, listOf(1.0, 1.0, 0.5, 1.0), fallbackIndex = 2),
+            )
+        ).jsonObject
+
+        val balancers = root["routing"]!!.jsonObject["balancers"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("vless-room-3", "vless-room-3"), balancers.map { it["fallbackTag"]!!.jsonPrimitive.content })
+    }
+
     @Test fun adaptiveBondRejectsMismatchedOrInvalidScheduling() {
         val invalid = listOf(
             BondScheduling(4, List(3) { 1.0 }),
             BondScheduling(3, List(4) { 1.0 }),
             BondScheduling(0, emptyList()),
+            BondScheduling(4, List(4) { 1.0 }, fallbackIndex = -1),
+            BondScheduling(4, List(4) { 1.0 }, fallbackIndex = 4),
         ) + listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, 0.0, -1.0).map { value ->
             BondScheduling(4, listOf(1.0, value, 1.0, 1.0))
         }

@@ -41,7 +41,7 @@ import org.olcbox.app.data.model.RoutingSettings
 import org.olcbox.app.net.BondCorePlan
 import org.olcbox.app.net.HttpBondRoomProbe
 import org.olcbox.app.net.bondPlanLogLines
-import org.olcbox.app.net.planAdaptiveBondCore
+import org.olcbox.app.net.planFullPoolAdaptiveBondCore
 import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.DesktopChannelProbe
 import org.olcbox.app.net.DesktopSingBoxController
@@ -1870,7 +1870,7 @@ class DesktopVpnManager private constructor(
             desktopBalancedRooms = bond.activeIndexes()
             setDesktopBondRooms(desktopBalancedRooms)
 
-            val activePlan = planAdaptiveBondCore(
+            val activePlan = planFullPoolAdaptiveBondCore(
                 desktopBalancedRooms,
                 bond.rooms.map { it.port },
                 HttpBondRoomProbe(socksSettings.username, socksSettings.password),
@@ -1949,14 +1949,18 @@ class DesktopVpnManager private constructor(
         var activeRooms = bond.activeIndexes()
         setDesktopBondRooms(activeRooms)
         if (activeRooms.isEmpty()) return false
-        if (activeRooms != desktopBalancedRooms && !rebalanceDesktopBond(line, bond, activeRooms)) {
-            return false
+
+        if (activeRooms.size < bond.rooms.size) {
+            activeRooms = recoverDesktopBondRooms(bond)
+            setDesktopBondRooms(activeRooms)
+            if (activeRooms.isEmpty()) return false
         }
 
-        activeRooms = recoverDesktopBondRooms(bond)
-        setDesktopBondRooms(activeRooms)
-        if (activeRooms.isEmpty()) return false
-        if (activeRooms == desktopBalancedRooms) return true
+        desktopBalancedRooms = activeRooms
+        val fullPoolRunning = desktopBalancedPlan?.roomPorts == bond.rooms.map { it.port } &&
+            singBoxCore.isRunning() &&
+            xrayCore.isRunning()
+        if (fullPoolRunning) return true
         return rebalanceDesktopBond(line, bond, activeRooms)
     }
 
@@ -1986,7 +1990,7 @@ class DesktopVpnManager private constructor(
         val spec = LinkParser.parse(line.location.bondVlessLink!!) as? OutboundSpec.Vless
             ?: error("bond carrier is not VLESS")
         val previousPlan = desktopBalancedPlan ?: return false
-        val activePlan = planAdaptiveBondCore(
+        val activePlan = planFullPoolAdaptiveBondCore(
             activeRooms,
             bond.rooms.map { it.port },
             HttpBondRoomProbe(line.socksSettings.username, line.socksSettings.password),
@@ -2935,19 +2939,30 @@ class DesktopVpnManager private constructor(
         val coresAlive = line.coresAlive ?: return
         coreWatchJob = scope.launch {
             val refreshPending = AtomicBoolean(false)
+            var lastIncompleteRecoveryAtMs = 0L
             while (isActive) {
                 delay(CORE_WATCH_INTERVAL_MS)
                 if (requestGeneration != generation || sessionLine !== line) return@launch
                 val bond = desktopOlcRtcBond
+                val activeRooms = bond?.activeIndexes()
                 val decision = desktopBondWatchDecision(
                     coresAlive = coresAlive(),
-                    activeRooms = bond?.activeIndexes(),
+                    activeRooms = activeRooms,
                     balancedRooms = desktopBalancedRooms,
                     expectedSize = bond?.rooms?.size ?: 0,
                 )
                 if (decision == DesktopBondWatchDecision.Continue || refreshPending.get()) continue
 
                 if (decision == DesktopBondWatchDecision.Refresh) {
+                    val now = nowMillis()
+                    if (bond != null &&
+                        activeRooms == desktopBalancedRooms &&
+                        activeRooms.size < bond.rooms.size &&
+                        now - lastIncompleteRecoveryAtMs < BOND_RECOVERY_COOLDOWN_MS
+                    ) {
+                        continue
+                    }
+                    lastIncompleteRecoveryAtMs = now
                     refreshPending.set(true)
                     scope.launch {
                         try {
@@ -4467,6 +4482,7 @@ class DesktopVpnManager private constructor(
         const val MAC_TUN_RECHECK_MS = 1_000L
         /** The longest a dead core goes unnoticed. */
         const val CORE_WATCH_INTERVAL_MS = 2_000L
+        const val BOND_RECOVERY_COOLDOWN_MS = 15_000L
         /**
          * What the Windows tun is given to carry the check of a restarted line:
          * as long as the one request the other systems make may take, its two

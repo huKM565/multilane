@@ -17,6 +17,7 @@ data class BondRoomSample(
 data class BondScheduling(
     val expected: Int,
     val costs: List<Double>,
+    val fallbackIndex: Int = 0,
 )
 
 data class BondCorePlan(
@@ -87,4 +88,30 @@ suspend fun planAdaptiveBondCore(
     val targets = activeRooms.map { BondRoomTarget(it, allPorts[it]) }
     val samples = measureBondRooms(targets, probe)
     return BondCorePlan(activeRooms, targets.map { it.port }, bondScheduling(samples), samples)
+}
+
+suspend fun planFullPoolAdaptiveBondCore(
+    activeRooms: List<Int>,
+    allPorts: List<Int>,
+    probe: BondRoomProbe,
+): BondCorePlan {
+    require(activeRooms.isNotEmpty()) { "an adaptive bond requires an active room" }
+    require(activeRooms.distinct().size == activeRooms.size) { "duplicate active room indexes" }
+    require(activeRooms == activeRooms.sorted()) { "active room indexes must be sorted" }
+    require(activeRooms.all { it in allPorts.indices }) { "active room index is outside the port list" }
+    require(allPorts.distinct().size == allPorts.size) { "bond ports must be distinct" }
+    val targets = activeRooms.map { BondRoomTarget(it, allPorts[it]) }
+    val measured = measureBondRooms(targets, probe)
+    val measuredCosts = bondScheduling(measured).costs
+    val sampleByIndex = activeRooms.zip(measured).toMap()
+    val costByIndex = activeRooms.zip(measuredCosts).toMap()
+    val fullIndexes = allPorts.indices.toList()
+    val fullSamples = fullIndexes.map { sampleByIndex[it] }
+    val fullCosts = fullIndexes.map { costByIndex[it] ?: 1.0 }
+    val scheduling = BondScheduling(
+        expected = minOf(4, allPorts.size),
+        costs = fullCosts,
+        fallbackIndex = activeRooms.first(),
+    )
+    return BondCorePlan(fullIndexes, allPorts, scheduling, fullSamples)
 }
