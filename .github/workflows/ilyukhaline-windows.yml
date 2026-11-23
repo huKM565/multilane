@@ -2,9 +2,12 @@ name: Build IlyukhaLine for Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - mamba-x4-vless
+    inputs:
+      version:
+        description: 'Release version'
+        required: false
+        default: '1.0.473'
+        type: string
 
 permissions:
   contents: read
@@ -71,8 +74,9 @@ jobs:
         working-directory: ilyukhaline
         run: |
           $ErrorActionPreference = "Stop"
+          $version = "${{ inputs.version || '1.0.473' }}"
           $env:OLCRTC_REPO = "${{ github.workspace }}\olcrtc"
-          .\gradlew.bat "-Polcbox.version=1.0.472" :sharedUI:jvmTest :desktopApp:packageReleaseExe :desktopApp:packageReleaseMsi :desktopApp:packageReleasePortableZip --stacktrace
+          .\gradlew.bat "-Polcbox.version=$version" :sharedUI:jvmTest :desktopApp:packageReleaseExe :desktopApp:packageReleaseMsi :desktopApp:packageReleasePortableZip --stacktrace
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed" }
 
       - name: Prepare artifacts
@@ -80,17 +84,18 @@ jobs:
         working-directory: ilyukhaline
         run: |
           $ErrorActionPreference = "Stop"
+          $version = "${{ inputs.version || '1.0.473' }}"
           New-Item -ItemType Directory -Force dist | Out-Null
           $exe = Get-ChildItem "desktopApp/build/compose/binaries/main-release/exe/*.exe" | Select-Object -First 1
           $msi = Get-ChildItem "desktopApp/build/compose/binaries/main-release/msi/*.msi" | Select-Object -First 1
           $zip = Get-ChildItem "desktopApp/build/compose/binaries/main-release/portable/*.zip" | Select-Object -First 1
           if ($null -eq $exe -or $null -eq $msi -or $null -eq $zip) { throw "A Windows package is missing" }
-          Copy-Item $exe.FullName "dist/IlyukhaLine-1.0.472-windows-amd64.exe"
-          Copy-Item $msi.FullName "dist/IlyukhaLine-1.0.472-windows-amd64.msi"
-          Copy-Item $zip.FullName "dist/IlyukhaLine-1.0.472-windows-amd64-portable.zip"
+          Copy-Item $exe.FullName "dist/MultiLane-$version-windows-amd64.exe"
+          Copy-Item $msi.FullName "dist/MultiLane-$version-windows-amd64.msi"
+          Copy-Item $zip.FullName "dist/MultiLane-$version-windows-amd64-portable.zip"
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: IlyukhaLine-windows-amd64
-          path: ilyukhaline/dist/IlyukhaLine-*
+          name: MultiLane-windows-amd64
+          path: ilyukhaline/dist/MultiLane-*
