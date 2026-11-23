@@ -25,13 +25,23 @@ type Session struct {
 	done bool
 }
 
-// Start builds and starts an Xray instance for one xhttp line. A cancelled ctx
-// before the start completes closes the instance again.
 func Start(ctx context.Context, p Params) (*Session, error) {
 	cfg, err := BuildConfig(p)
 	if err != nil {
 		return nil, err
 	}
+	return startJSON(ctx, cfg, p.SocksHost, p.SocksPort, p.SocksUser, p.SocksPass)
+}
+
+func StartBond(ctx context.Context, p BondParams) (*Session, error) {
+	cfg, err := BuildBondConfig(p)
+	if err != nil {
+		return nil, err
+	}
+	return startJSON(ctx, cfg, p.SocksHost, p.SocksPort, p.SocksUser, p.SocksPass)
+}
+
+func startJSON(ctx context.Context, cfg []byte, host string, port int, user, pass string) (*Session, error) {
 	pb, err := serial.LoadJSONConfig(bytes.NewReader(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("xray config: %w", err)
@@ -41,7 +51,6 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		return nil, fmt.Errorf("xray: %w", err)
 	}
 	if err := inst.Start(); err != nil {
-		// Start leaves the features it did start running: close them
 		_ = inst.Close()
 		return nil, fmt.Errorf("xray start: %w", err)
 	}
@@ -49,7 +58,7 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		_ = inst.Close()
 		return nil, ctx.Err()
 	}
-	return &Session{inst: inst, addr: net.JoinHostPort(p.SocksHost, strconv.Itoa(p.SocksPort)), user: p.SocksUser, pass: p.SocksPass}, nil
+	return &Session{inst: inst, addr: net.JoinHostPort(host, strconv.Itoa(port)), user: user, pass: pass}, nil
 }
 
 func (s *Session) SocksAddr() string             { return s.addr }

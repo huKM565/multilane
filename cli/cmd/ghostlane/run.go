@@ -19,6 +19,7 @@ import (
 
 	"github.com/ghostlane-project/ghostlane/cli/internal/crypt1"
 	"github.com/ghostlane-project/ghostlane/cli/internal/daemon"
+	"github.com/ghostlane-project/ghostlane/cli/internal/engine/bond"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/olcrtc"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/singbox"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/xray"
@@ -38,6 +39,7 @@ func runDaemon(args []string, stderr io.Writer) int {
 	mode := fs.String("mode", "proxy", "tun | proxy, with --connect")
 	killSwitch := fs.Bool("kill-switch", false, "with --mode tun: refuse traffic outside the tunnel while no line is up")
 	probeURL := fs.String("probe-url", "http://cp.cloudflare.com/generate_204", "liveness probe through the tunnel")
+	directRules := fs.String("direct-rules", "/etc/ghostlane-direct.rules", "optional direct rules file (domain:/full:/CIDR per line)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -98,12 +100,16 @@ func runDaemon(args []string, stderr io.Writer) int {
 		StartEngine: func(ctx context.Context, p olcrtc.Params) (daemon.Engine, error) {
 			return olcrtc.Start(ctx, p)
 		},
+		StartBond: func(ctx context.Context, p bond.Params) (daemon.Engine, error) {
+			return bond.Start(ctx, p)
+		},
 		StartXray: func(ctx context.Context, p xray.Params) (daemon.Engine, error) {
 			return xray.Start(ctx, p)
 		},
 		StartFront: func(ctx context.Context, p singbox.FrontParams) (daemon.Front, error) {
 			return singbox.Start(ctx, p)
 		},
+		DirectRulesPath: *directRules,
 		Routes:       routes.New(singbox.TunName),
 		Probe:        daemon.HTTPProbe(*probeURL),
 		Logf:         logf,

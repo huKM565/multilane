@@ -2,9 +2,12 @@
 package singbox
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 
@@ -49,9 +52,10 @@ type FrontParams struct {
 	LogLevel      string
 	// A loopback mixed inbound the daemon probes through, for every kind of
 	// upstream; "" = none. Credentials are required.
-	ProbeListen string
-	ProbeUser   string
-	ProbePass   string
+	ProbeListen     string
+	ProbeUser       string
+	ProbePass       string
+	DirectRulesFile string
 }
 
 var privateRanges = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -173,30 +177,91 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 		inbounds = append(inbounds, map[string]any{"type": "mixed", "tag": "probe-in", "listen": phost, "listen_port": pport,
 			"users": []map[string]any{{"username": p.ProbeUser, "password": p.ProbePass}}})
 	}
-	cfg := map[string]any{
-		"log": map[string]any{"level": level, "timestamp": false},
-		"dns": map[string]any{
-			"servers": []map[string]any{
-				{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "tunnel"},
-				{"type": "local", "tag": "local"},
-			},
-			"final": "remote",
+	directSuffixes, directFull, directCIDRs := loadDirectRulesFile(p.DirectRulesFile)
+	dnsCfg := map[string]any{
+		"servers": []map[string]any{
+			{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "tunnel"},
+			{"type": "local", "tag": "local"},
 		},
+		"final": "remote",
+	}
+	if len(directSuffixes) > 0 || len(directFull) > 0 {
+		dnsRule := map[string]any{"server": "local"}
+		if len(directSuffixes) > 0 {
+			dnsRule["domain_suffix"] = directSuffixes
+		}
+		if len(directFull) > 0 {
+			dnsRule["domain"] = directFull
+		}
+		dnsCfg["rules"] = []map[string]any{dnsRule}
+	}
+	routeRules := []map[string]any{
+		{"action": "sniff"},
+		{"protocol": "dns", "action": "hijack-dns"},
+		{"ip_is_private": true, "outbound": "direct"},
+		{"ip_version": 6, "action": "reject"},
+	}
+	if len(directSuffixes) > 0 || len(directFull) > 0 {
+		domainRule := map[string]any{"outbound": "direct"}
+		if len(directSuffixes) > 0 {
+			domainRule["domain_suffix"] = directSuffixes
+		}
+		if len(directFull) > 0 {
+			domainRule["domain"] = directFull
+		}
+		routeRules = append(routeRules, domainRule)
+	}
+	if len(directCIDRs) > 0 {
+		routeRules = append(routeRules, map[string]any{"ip_cidr": directCIDRs, "outbound": "direct"})
+	}
+	cfg := map[string]any{
+		"log":       map[string]any{"level": level, "timestamp": false},
+		"dns":       dnsCfg,
 		"inbounds":  inbounds,
 		"outbounds": []map[string]any{upstream, {"type": "direct", "tag": "direct"}},
 		"route": map[string]any{
-			"rules": []map[string]any{
-				{"action": "sniff"},
-				{"protocol": "dns", "action": "hijack-dns"},
-				{"ip_is_private": true, "outbound": "direct"},
-				{"ip_version": 6, "action": "reject"},
-			},
+			"rules":                   routeRules,
 			"final":                   "tunnel",
 			"auto_detect_interface":   true,
 			"default_domain_resolver": "local",
 		},
 	}
 	return json.Marshal(cfg)
+}
+
+func loadDirectRulesFile(path string) (suffixes, full, cidrs []string) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, nil
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "domain:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "domain:")); d != "" {
+				suffixes = append(suffixes, d)
+			}
+		case strings.HasPrefix(line, "full:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "full:")); d != "" {
+				full = append(full, d)
+			}
+		default:
+			if p, err := netip.ParsePrefix(line); err == nil {
+				cidrs = append(cidrs, p.String())
+			} else if ip, err := netip.ParseAddr(line); err == nil {
+				cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
+			}
+		}
+	}
+	return suffixes, full, cidrs
 }
 
 // singBoxFingerprints are the uTLS names sing-box knows (common/tls/utls_client.go).

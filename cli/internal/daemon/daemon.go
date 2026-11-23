@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghostlane-project/ghostlane/cli/internal/engine/bond"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/olcrtc"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/singbox"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/xray"
@@ -53,9 +54,11 @@ type Deps struct {
 	Fetch       func(ctx context.Context, url string, dev links.Device) ([]byte, links.Headers, error)
 	Device      links.Device    // what a list fetch says about this machine; the id is the daemon's own (deviceID)
 	Decrypt     links.Decryptor // crypt1 lists and links; nil = this build has no key
-	StartEngine func(ctx context.Context, p olcrtc.Params) (Engine, error)
-	StartXray   func(ctx context.Context, p xray.Params) (Engine, error)
-	StartFront  func(ctx context.Context, p singbox.FrontParams) (Front, error)
+	StartEngine     func(ctx context.Context, p olcrtc.Params) (Engine, error)
+	StartBond       func(ctx context.Context, p bond.Params) (Engine, error)
+	StartXray       func(ctx context.Context, p xray.Params) (Engine, error)
+	StartFront      func(ctx context.Context, p singbox.FrontParams) (Front, error)
+	DirectRulesPath string
 	Routes      Routes
 	Probe       func(ctx context.Context, socksAddr, user, pass string) error
 	Now         func() time.Time

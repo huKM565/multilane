@@ -45,6 +45,17 @@ var NewRuntime = func() Runtime { return mobile.New() }
 // in the engine's route.direct syntax.
 const PrivateDirectRules = "10.0.0.0/8\n172.16.0.0/12\n192.168.0.0/16\n100.64.0.0/10\n169.254.0.0/16\n127.0.0.0/8\nfc00::/7\nfe80::/10\n"
 
+func DirectRulesFromFile(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return PrivateDirectRules
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return PrivateDirectRules
+	}
+	return PrivateDirectRules + string(data)
+}
+
 type Params struct {
 	Line         links.OlcrtcLine
 	SocksHost    string
@@ -54,7 +65,8 @@ type Params struct {
 	DNS          string
 	DirectRules  string
 	DeviceIDPath string
-	ReadyTimeout time.Duration // 0 = 60 s
+	ReadyTimeout time.Duration
+	DisableUDP   bool
 }
 
 const defaultReadyTimeout = 60 * time.Second
@@ -93,7 +105,7 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		{"socks host", func() error { return rt.SetSocksListenHost(p.SocksHost) }},
 		{"socks port", func() error { return rt.SetSocksPort(p.SocksPort) }},
 		{"socks credentials", func() error { return rt.SetSocksCredentials(p.SocksUser, p.SocksPass) }},
-		{"udp", func() error { rt.SetUDP(true); return nil }},
+		{"udp", func() error { rt.SetUDP(!p.DisableUDP); return nil }},
 		{"direct rules", func() error { return rt.SetDirectRules(p.DirectRules) }},
 		{"device id", func() error { rt.SetDeviceIDPath(p.DeviceIDPath); return nil }},
 	}

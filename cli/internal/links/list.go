@@ -207,12 +207,75 @@ func cutBase64Prefix(v string) (string, bool) {
 	return v, false
 }
 
-// Entries parses every line; ids are stable across refreshes by (list, label),
-// a repeated label counted up so two rooms named alike stay two entries.
 func Entries(subURL string, lines []string) []Entry {
 	seen := map[string]int{}
 	out := make([]Entry, 0, len(lines))
+	type bondDraft struct {
+		extraRoomIDs []string
+		explicit     []BondRoom
+	}
+	drafts := map[int]*bondDraft{}
+
 	for _, raw := range lines {
+		if strings.HasPrefix(raw, "##") {
+			if len(out) == 0 {
+				continue
+			}
+			idx := len(out) - 1
+			prev := &out[idx]
+			if prev.Olcrtc == nil {
+				continue
+			}
+			prev.Raw += "\n" + raw
+			key, val, ok := parseMetaField(strings.TrimPrefix(raw, "##"))
+			if !ok {
+				continue
+			}
+			draft := drafts[idx]
+			if draft == nil {
+				draft = &bondDraft{}
+				drafts[idx] = draft
+			}
+			switch key {
+			case "group":
+				prev.Olcrtc.Group = val
+				if prev.Country == "" {
+					prev.Country = CountryOf(val)
+				}
+			case "rooms":
+				for _, tok := range splitRoomTokens(val) {
+					draft.extraRoomIDs = append(draft.extraRoomIDs, tok)
+				}
+			case "bond-room":
+				parsed, err := ParseOlcrtc(val)
+				if err != nil {
+					prev.Problem = fmt.Sprintf("bond-room: %v", err)
+				} else {
+					draft.explicit = append(draft.explicit, BondRoom{
+						Provider:  parsed.Provider,
+						Transport: parsed.Transport,
+						Room:      parsed.Room,
+						Key:       parsed.Key,
+						VP8FPS:    parsed.VP8FPS,
+						VP8Batch:  parsed.VP8Batch,
+					})
+				}
+			case "bond-vless":
+				v, err := ParseVless(val)
+				if err != nil {
+					prev.Problem = fmt.Sprintf("bond-vless: %v", err)
+				} else if !v.Plain || v.Transport.Kind != "tcp" {
+					prev.Problem = "bond-vless: requires plain TCP VLESS"
+				} else {
+					prev.Olcrtc.BondVless = v
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(raw, "#") {
+			continue
+		}
+
 		e := Entry{Raw: raw}
 		switch {
 		case strings.HasPrefix(raw, olcrtcPrefix):
@@ -244,6 +307,68 @@ func Entries(subURL string, lines []string) []Entry {
 		seen[e.Label]++
 		e.ID = entryID(subURL, e.Label, seen[e.Label])
 		out = append(out, e)
+	}
+
+	for idx, draft := range drafts {
+		e := &out[idx]
+		if e.Olcrtc == nil || e.Olcrtc.BondVless == nil || e.Problem != "" {
+			continue
+		}
+		primary := BondRoom{
+			Provider:  e.Olcrtc.Provider,
+			Transport: e.Olcrtc.Transport,
+			Room:      e.Olcrtc.Room,
+			Key:       e.Olcrtc.Key,
+			VP8FPS:    e.Olcrtc.VP8FPS,
+			VP8Batch:  e.Olcrtc.VP8Batch,
+		}
+		rooms := []BondRoom{primary}
+		if len(draft.explicit) > 0 {
+			rooms = append(rooms, draft.explicit...)
+		} else {
+			for _, id := range draft.extraRoomIDs {
+				rooms = append(rooms, BondRoom{
+					Provider:  primary.Provider,
+					Transport: primary.Transport,
+					Room:      id,
+					Key:       primary.Key,
+					VP8FPS:    primary.VP8FPS,
+					VP8Batch:  primary.VP8Batch,
+				})
+			}
+		}
+		if len(rooms) < 1 || len(rooms) > 12 {
+			e.Problem = fmt.Sprintf("bond: expected 1..12 rooms, got %d", len(rooms))
+			continue
+		}
+		e.Olcrtc.BondRooms = rooms
+	}
+
+	return out
+}
+
+func parseMetaField(s string) (key, val string, ok bool) {
+	sep := strings.IndexAny(s, ":=")
+	if sep <= 0 {
+		return "", "", false
+	}
+	key = strings.ToLower(strings.TrimSpace(s[:sep]))
+	val = strings.TrimSpace(s[sep+1:])
+	if key == "" || val == "" {
+		return "", "", false
+	}
+	return key, val, true
+}
+
+func splitRoomTokens(s string) []string {
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == ';'
+	})
+	var out []string
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
 	}
 	return out
 }

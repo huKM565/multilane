@@ -18,16 +18,30 @@ var (
 	errBadKey    = errors.New("olcrtc line: key must be 64 hex characters")
 )
 
-// OlcrtcLine is one room: olcrtc://<provider>?<transport>[&k=v…]@<room>#<key>[%<client>][$<label>]
-// (the grammar of LocationsDatasource.parseOlcRtcUri in the app).
-type OlcrtcLine struct {
-	Provider  string // telemost | wbstream | jitsi | salutejazz | vkcalls | mtslink
-	Transport string // datachannel | vp8channel | seichannel | videochannel
+type BondRoom struct {
+	Provider  string
+	Transport string
 	Room      string
-	Key       string // 64 hex characters
-	Label     string // after the $, else the room
-	VP8FPS    int    // 0 = engine default
-	VP8Batch  int    // 0 = engine default
+	Key       string
+	VP8FPS    int
+	VP8Batch  int
+}
+
+type OlcrtcLine struct {
+	Provider  string
+	Transport string
+	Room      string
+	Key       string
+	Label     string
+	VP8FPS    int
+	VP8Batch  int
+	Group     string
+	BondRooms []BondRoom
+	BondVless *VlessLine
+}
+
+func (l OlcrtcLine) IsBonded() bool {
+	return l.BondVless != nil && len(l.BondRooms) > 0
 }
 
 func ParseOlcrtc(line string) (*OlcrtcLine, error) {

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ghostlane-project/ghostlane/cli/internal/engine/bond"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/olcrtc"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/singbox"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/xray"
@@ -444,7 +445,8 @@ func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeU
 	return singbox.FrontParams{Mode: singbox.Mode(mode), Upstream: up,
 		ProxyListen: proxy.Listen, ProxyPort: proxy.Port, ProxyUser: proxy.User, ProxyPass: proxy.Pass,
 		ExcludeUID: d.deps.UID, InterfaceName: singbox.TunName,
-		ProbeListen: probeAddr, ProbeUser: probeUser, ProbePass: probePass}
+		ProbeListen: probeAddr, ProbeUser: probeUser, ProbePass: probePass,
+		DirectRulesFile: d.deps.DirectRulesPath}
 }
 
 // bringUp connects one entry by its kind:
@@ -459,6 +461,24 @@ func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string) (*live
 	var eng Engine
 	var up singbox.Upstream
 	switch {
+	case e.Olcrtc != nil && e.Olcrtc.IsBonded():
+		startBond := d.deps.StartBond
+		if startBond == nil {
+			startBond = func(ctx context.Context, p bond.Params) (Engine, error) {
+				return bond.Start(ctx, p)
+			}
+		}
+		var err error
+		eng, err = startBond(ctx, bond.Params{
+			Line:         *e.Olcrtc,
+			DNS:          olcrtc.HostResolvers(d.deps.ResolvConf),
+			DeviceIDPath: d.deviceIDPath(),
+			ReadyTimeout: d.deps.ReadyTimeout,
+			Logf:         d.logf,
+		})
+		if err != nil {
+			return nil, err
+		}
 	case e.Olcrtc != nil:
 		port, err := olcrtc.FreePort()
 		if err != nil {
@@ -467,7 +487,7 @@ func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string) (*live
 		user, pass := olcrtc.RandomCredentials()
 		eng, err = d.deps.StartEngine(ctx, olcrtc.Params{
 			Line: *e.Olcrtc, SocksHost: "127.0.0.1", SocksPort: port, SocksUser: user, SocksPass: pass,
-			DNS: olcrtc.HostResolvers(d.deps.ResolvConf), DirectRules: olcrtc.PrivateDirectRules, DeviceIDPath: d.deviceIDPath(),
+			DNS: olcrtc.HostResolvers(d.deps.ResolvConf), DirectRules: olcrtc.DirectRulesFromFile(d.deps.DirectRulesPath), DeviceIDPath: d.deviceIDPath(),
 			ReadyTimeout: d.deps.ReadyTimeout,
 		})
 		if err != nil {
