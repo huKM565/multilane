@@ -128,8 +128,9 @@ func TestBondRecoversDeadRoomWithoutRestartingXray(t *testing.T) {
 	deadline := time.Now().Add(1 * time.Second)
 	var restartedPort int
 	for time.Now().Before(deadline) {
+		up, total := bs.BondRooms()
 		mu.Lock()
-		if len(created) >= 5 {
+		if len(created) >= 5 && up == 4 && total == 4 {
 			last := created[len(created)-1]
 			last.mu.Lock()
 			if last.state == "running" {

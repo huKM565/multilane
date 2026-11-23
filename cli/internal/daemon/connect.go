@@ -446,7 +446,8 @@ func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeU
 		ProxyListen: proxy.Listen, ProxyPort: proxy.Port, ProxyUser: proxy.User, ProxyPass: proxy.Pass,
 		ExcludeUID: d.deps.UID, InterfaceName: singbox.TunName,
 		ProbeListen: probeAddr, ProbeUser: probeUser, ProbePass: probePass,
-		DirectRulesFile: d.deps.DirectRulesPath}
+		DirectRulesFile: d.deps.DirectRulesPath,
+		TunnelRulesFile: d.deps.TunnelRulesPath}
 }
 
 // bringUp connects one entry by its kind:

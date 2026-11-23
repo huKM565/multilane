@@ -150,7 +150,7 @@ Example:
 Prints the version, the pinned engine and sing-box versions, and the sha256
 of the public key every release is signed with (install.sh verifies against it).
 `,
-	"run": `multilane-cli run [--state-dir <dir>] [--socket <path>] [--direct-rules <file>] [--subscription <url> --connect <selector> --mode tun|proxy [--kill-switch]]
+	"run": `multilane-cli run [--state-dir <dir>] [--socket <path>] [--direct-rules <file>] [--tunnel-rules <file>] [--subscription <url> --connect <selector> --mode tun|proxy [--kill-switch]]
 
 The daemon, in the foreground. systemd (or OpenRC) runs it as user multilane
 with CAP_NET_ADMIN; in a container or router run it yourself:
@@ -161,8 +161,10 @@ The proxy is set through the environment in a container: MULTILANE_PROXY_LISTEN
 (0.0.0.0 to publish the port), MULTILANE_PROXY_PORT, MULTILANE_PROXY_USER and
 MULTILANE_PROXY_PASS — a listen that is not loopback needs the credentials.
 For --mode tun the container needs --cap-add NET_ADMIN --device /dev/net/tun.
-Other flags: --probe-url <url> (liveness probe through the tunnel),
---direct-rules <file> (domain:/full:/CIDR direct rules file).
+Other flags:
+  --probe-url <url>      liveness probe through the tunnel
+  --direct-rules <file>  domains/CIDRs/.srs to route directly (default /etc/multilane-direct.rules)
+  --tunnel-rules <file>  Podkop-style selective routing: ONLY listed domains/CIDRs/.srs go through tunnel, everything else goes direct (default /etc/multilane-tunnel.rules)
 `,
 }
 

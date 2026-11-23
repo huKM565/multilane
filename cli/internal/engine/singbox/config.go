@@ -56,6 +56,7 @@ type FrontParams struct {
 	ProbeUser       string
 	ProbePass       string
 	DirectRulesFile string
+	TunnelRulesFile string
 }
 
 var privateRanges = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -177,65 +178,143 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 		inbounds = append(inbounds, map[string]any{"type": "mixed", "tag": "probe-in", "listen": phost, "listen_port": pport,
 			"users": []map[string]any{{"username": p.ProbeUser, "password": p.ProbePass}}})
 	}
-	directSuffixes, directFull, directCIDRs := loadDirectRulesFile(p.DirectRulesFile)
+	directRules := loadRulesFile(p.DirectRulesFile, "direct-rs-")
+	tunnelRules := loadRulesFile(p.TunnelRulesFile, "tunnel-rs-")
+	tunnelOnly := !tunnelRules.empty()
+
+	dnsFinal := "remote"
+	routeFinal := "tunnel"
+	if tunnelOnly {
+		dnsFinal = "local"
+		routeFinal = "direct"
+	}
+
 	dnsCfg := map[string]any{
 		"servers": []map[string]any{
 			{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "tunnel"},
 			{"type": "local", "tag": "local"},
 		},
-		"final": "remote",
+		"final": dnsFinal,
 	}
-	if len(directSuffixes) > 0 || len(directFull) > 0 {
-		dnsRule := map[string]any{"server": "local"}
-		if len(directSuffixes) > 0 {
-			dnsRule["domain_suffix"] = directSuffixes
-		}
-		if len(directFull) > 0 {
-			dnsRule["domain"] = directFull
-		}
-		dnsCfg["rules"] = []map[string]any{dnsRule}
+	var dnsRules []map[string]any
+	if r := directRules.dnsRule("local"); r != nil {
+		dnsRules = append(dnsRules, r)
 	}
+	if r := tunnelRules.dnsRule("remote"); r != nil {
+		dnsRules = append(dnsRules, r)
+	}
+	if len(dnsRules) > 0 {
+		dnsCfg["rules"] = dnsRules
+	}
+
 	routeRules := []map[string]any{
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "outbound": "direct"},
 		{"ip_version": 6, "action": "reject"},
 	}
-	if len(directSuffixes) > 0 || len(directFull) > 0 {
-		domainRule := map[string]any{"outbound": "direct"}
-		if len(directSuffixes) > 0 {
-			domainRule["domain_suffix"] = directSuffixes
-		}
-		if len(directFull) > 0 {
-			domainRule["domain"] = directFull
-		}
-		routeRules = append(routeRules, domainRule)
+	if p.ProbeListen != "" {
+		routeRules = append(routeRules, map[string]any{"inbound": []string{"probe-in"}, "outbound": "tunnel"})
 	}
-	if len(directCIDRs) > 0 {
-		routeRules = append(routeRules, map[string]any{"ip_cidr": directCIDRs, "outbound": "direct"})
+	routeRules = append(routeRules, directRules.routeRules("direct")...)
+	routeRules = append(routeRules, tunnelRules.routeRules("tunnel")...)
+
+	routeCfg := map[string]any{
+		"rules":                   routeRules,
+		"final":                   routeFinal,
+		"auto_detect_interface":   true,
+		"default_domain_resolver": "local",
 	}
+	var ruleSets []map[string]any
+	ruleSets = append(ruleSets, directRules.ruleSets...)
+	ruleSets = append(ruleSets, tunnelRules.ruleSets...)
+	if len(ruleSets) > 0 {
+		routeCfg["rule_set"] = ruleSets
+	}
+
 	cfg := map[string]any{
 		"log":       map[string]any{"level": level, "timestamp": false},
 		"dns":       dnsCfg,
 		"inbounds":  inbounds,
 		"outbounds": []map[string]any{upstream, {"type": "direct", "tag": "direct"}},
-		"route": map[string]any{
-			"rules":                   routeRules,
-			"final":                   "tunnel",
-			"auto_detect_interface":   true,
-			"default_domain_resolver": "local",
-		},
+		"route":     routeCfg,
 	}
 	return json.Marshal(cfg)
 }
 
-func loadDirectRulesFile(path string) (suffixes, full, cidrs []string) {
+type parsedRules struct {
+	suffixes    []string
+	full        []string
+	keywords    []string
+	regexps     []string
+	cidrs       []string
+	ruleSetTags []string
+	ruleSets    []map[string]any
+}
+
+func (r parsedRules) empty() bool {
+	return len(r.suffixes) == 0 && len(r.full) == 0 && len(r.keywords) == 0 &&
+		len(r.regexps) == 0 && len(r.cidrs) == 0 && len(r.ruleSetTags) == 0
+}
+
+func (r parsedRules) dnsRule(server string) map[string]any {
+	if len(r.suffixes) == 0 && len(r.full) == 0 && len(r.keywords) == 0 && len(r.regexps) == 0 && len(r.ruleSetTags) == 0 {
+		return nil
+	}
+	m := map[string]any{"server": server}
+	if len(r.suffixes) > 0 {
+		m["domain_suffix"] = r.suffixes
+	}
+	if len(r.full) > 0 {
+		m["domain"] = r.full
+	}
+	if len(r.keywords) > 0 {
+		m["domain_keyword"] = r.keywords
+	}
+	if len(r.regexps) > 0 {
+		m["domain_regex"] = r.regexps
+	}
+	if len(r.ruleSetTags) > 0 {
+		m["rule_set"] = r.ruleSetTags
+	}
+	return m
+}
+
+func (r parsedRules) routeRules(outbound string) []map[string]any {
+	var out []map[string]any
+	if len(r.suffixes) > 0 || len(r.full) > 0 || len(r.keywords) > 0 || len(r.regexps) > 0 {
+		m := map[string]any{"outbound": outbound}
+		if len(r.suffixes) > 0 {
+			m["domain_suffix"] = r.suffixes
+		}
+		if len(r.full) > 0 {
+			m["domain"] = r.full
+		}
+		if len(r.keywords) > 0 {
+			m["domain_keyword"] = r.keywords
+		}
+		if len(r.regexps) > 0 {
+			m["domain_regex"] = r.regexps
+		}
+		out = append(out, m)
+	}
+	if len(r.cidrs) > 0 {
+		out = append(out, map[string]any{"ip_cidr": r.cidrs, "outbound": outbound})
+	}
+	if len(r.ruleSetTags) > 0 {
+		out = append(out, map[string]any{"rule_set": r.ruleSetTags, "outbound": outbound})
+	}
+	return out
+}
+
+func loadRulesFile(path, tagPrefix string) parsedRules {
+	var r parsedRules
 	if strings.TrimSpace(path) == "" {
-		return nil, nil, nil
+		return r
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, nil, nil
+		return r
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
@@ -247,21 +326,44 @@ func loadDirectRulesFile(path string) (suffixes, full, cidrs []string) {
 		switch {
 		case strings.HasPrefix(line, "domain:"):
 			if d := strings.TrimSpace(strings.TrimPrefix(line, "domain:")); d != "" {
-				suffixes = append(suffixes, d)
+				r.suffixes = append(r.suffixes, d)
 			}
 		case strings.HasPrefix(line, "full:"):
 			if d := strings.TrimSpace(strings.TrimPrefix(line, "full:")); d != "" {
-				full = append(full, d)
+				r.full = append(r.full, d)
+			}
+		case strings.HasPrefix(line, "keyword:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "keyword:")); d != "" {
+				r.keywords = append(r.keywords, d)
+			}
+		case strings.HasPrefix(line, "regexp:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "regexp:")); d != "" {
+				r.regexps = append(r.regexps, d)
+			}
+		case strings.HasPrefix(line, "ruleset:") || strings.HasSuffix(line, ".srs"):
+			p := strings.TrimSpace(strings.TrimPrefix(line, "ruleset:"))
+			if p != "" {
+				tag := tagPrefix + strconv.Itoa(len(r.ruleSetTags)+1)
+				format := "binary"
+				if strings.HasSuffix(p, ".json") {
+					format = "source"
+				}
+				r.ruleSetTags = append(r.ruleSetTags, tag)
+				r.ruleSets = append(r.ruleSets, map[string]any{
+					"type": "local", "tag": tag, "format": format, "path": p,
+				})
 			}
 		default:
 			if p, err := netip.ParsePrefix(line); err == nil {
-				cidrs = append(cidrs, p.String())
+				r.cidrs = append(r.cidrs, p.String())
 			} else if ip, err := netip.ParseAddr(line); err == nil {
-				cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
+				r.cidrs = append(r.cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
+			} else if d := strings.TrimPrefix(line, "."); strings.Contains(d, ".") && !strings.ContainsAny(d, "/ \t") {
+				r.suffixes = append(r.suffixes, d)
 			}
 		}
 	}
-	return suffixes, full, cidrs
+	return r
 }
 
 // singBoxFingerprints are the uTLS names sing-box knows (common/tls/utls_client.go).

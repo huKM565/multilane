@@ -3,6 +3,7 @@ package singbox
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -236,5 +237,54 @@ func TestProxyWithAuthAndListenAll(t *testing.T) {
 	p.ProxyUser = ""
 	if _, err := BuildConfig(p); err == nil {
 		t.Fatal("listening beyond loopback without credentials is refused")
+	}
+}
+
+func TestBuildConfigTunnelRulesFile(t *testing.T) {
+	dir := t.TempDir()
+	rsPath := dir + "/youtube.json"
+	if err := os.WriteFile(rsPath, []byte(`{"version":1,"rules":[{"domain_suffix":["ytimg.com"]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rulesPath := dir + "/tunnel.rules"
+	body := strings.Join([]string{
+		"# Podkop-style selective tunnel list",
+		"youtube.com",
+		".discord.gg",
+		"domain:chatgpt.com",
+		"full:api.openai.com",
+		"keyword:googlevideo",
+		"104.16.0.0/12",
+		"ruleset:" + rsPath,
+	}, "\n")
+	if err := os.WriteFile(rulesPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := base(ModeTun)
+	p.TunnelRulesFile = rulesPath
+	p.ProbeListen, p.ProbeUser, p.ProbePass = "127.0.0.1:29999", "u", "p"
+	cfg, err := BuildConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(cfg); err != nil {
+		t.Fatalf("sing-box refused Podkop-style tunnel rules config: %v\n%s", err, cfg)
+	}
+	s := string(cfg)
+	for _, want := range []string{
+		`"final":"direct"`,
+		`"final":"local"`,
+		`"youtube.com"`,
+		`"discord.gg"`,
+		`"chatgpt.com"`,
+		`"api.openai.com"`,
+		`"googlevideo"`,
+		`"104.16.0.0/12"`,
+		rsPath,
+		`"inbound":["probe-in"],"outbound":"tunnel"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("config missing %s:\n%s", want, s)
+		}
 	}
 }

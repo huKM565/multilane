@@ -39,7 +39,8 @@ func runDaemon(args []string, stderr io.Writer) int {
 	mode := fs.String("mode", "proxy", "tun | proxy, with --connect")
 	killSwitch := fs.Bool("kill-switch", false, "with --mode tun: refuse traffic outside the tunnel while no line is up")
 	probeURL := fs.String("probe-url", "http://cp.cloudflare.com/generate_204", "liveness probe through the tunnel")
-	directRules := fs.String("direct-rules", defaultDirectRulesPath(), "optional direct rules file (domain:/full:/CIDR per line)")
+	directRules := fs.String("direct-rules", defaultDirectRulesPath(), "optional direct rules file (domain:/full:/CIDR/.srs per line)")
+	tunnelRules := fs.String("tunnel-rules", "/etc/multilane-tunnel.rules", "optional Podkop-style selective tunnel rules file (only listed domains/CIDRs/.srs go into tunnel, rest direct)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -110,6 +111,7 @@ func runDaemon(args []string, stderr io.Writer) int {
 			return singbox.Start(ctx, p)
 		},
 		DirectRulesPath: *directRules,
+		TunnelRulesPath: *tunnelRules,
 		Routes:       routes.New(singbox.TunName),
 		Probe:        daemon.HTTPProbe(*probeURL),
 		Logf:         logf,

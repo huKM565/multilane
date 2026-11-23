@@ -59,6 +59,7 @@ type Deps struct {
 	StartXray       func(ctx context.Context, p xray.Params) (Engine, error)
 	StartFront      func(ctx context.Context, p singbox.FrontParams) (Front, error)
 	DirectRulesPath string
+	TunnelRulesPath string
 	Routes      Routes
 	Probe       func(ctx context.Context, socksAddr, user, pass string) error
 	Now         func() time.Time
