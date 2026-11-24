@@ -25,6 +25,7 @@ jobs:
       - name: Download artifact from run and attach to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           version="${{ inputs.version || '1.0.474' }}"
