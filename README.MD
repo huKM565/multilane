@@ -66,10 +66,10 @@ multilane-cli status
 multilane-cli disconnect
 ```
 
-Флаги демона `multilane-cli run` для роутеров и шлюзов:
+Флаги демона `multilane-cli run`:
 - `--direct-rules /etc/multilane-direct.rules` — домены, IP/CIDR и `.srs` rule-set'ы, идущие напрямую (всё остальное — в туннель).
 - `--tunnel-rules /etc/multilane-tunnel.rules` — избирательный режим в стиле Podkop: в туннель идут только указанные домены, IP/CIDR и `.srs` rule-set'ы, остальной трафик идёт напрямую.
-- `--proxy-listen 192.168.31.1:1080` (`--proxy-user`, `--proxy-pass`) — поднимает смешанный SOCKS5+HTTP прокси в LAN параллельно с `--tun`.
+- `--proxy-listen <host:port>` (`--proxy-user`, `--proxy-pass`) — поднимает смешанный SOCKS5+HTTP прокси параллельно с `--tun` (работает на любой Linux-машине, сервере или роутере).
 - `--connect <selector> --mode tun` — автоподключение при старте демона по сохранённым подпискам.
 
 Подробная документация CLI: [docs/cli.md](docs/cli.md) и [cli/README.md](cli/README.md).
