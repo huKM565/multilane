@@ -10,6 +10,7 @@ func TestEntriesParsesBondedSubscriptionMetadata(t *testing.T) {
 			"##group: Германия\n" +
 			"##rooms: https://m2.example/r2 https://m3.example/r3, https://m4.example/r4\n" +
 			"##bond-vless: vless://11111111-1111-1111-1111-111111111111@127.0.0.1:10000?security=none&encryption=none#VLESS\n" +
+			"##bond-active: 2\n" +
 			"olcrtc://vkcalls?vp8channel@https://vk.ru/call/join/a#" + key + "$Польша — VK 2x\n" +
 			"##group: Польша\n" +
 			"##bond-room: olcrtc://jitsi?datachannel@https://m5.example/r5#" + key + "\n" +
@@ -34,6 +35,9 @@ func TestEntriesParsesBondedSubscriptionMetadata(t *testing.T) {
 	}
 	if e0.Olcrtc.BondVless.UUID != "11111111-1111-1111-1111-111111111111" {
 		t.Fatalf("unexpected bond vless: %+v", e0.Olcrtc.BondVless)
+	}
+	if e0.Olcrtc.BondActive != 2 {
+		t.Fatalf("entry 0 BondActive = %d, want 2", e0.Olcrtc.BondActive)
 	}
 
 	e1 := entries[1]

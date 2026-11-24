@@ -35,9 +35,10 @@ type OlcrtcLine struct {
 	Label     string
 	VP8FPS    int
 	VP8Batch  int
-	Group     string
-	BondRooms []BondRoom
-	BondVless *VlessLine
+	Group      string
+	BondRooms  []BondRoom
+	BondActive int
+	BondVless  *VlessLine
 }
 
 func (l OlcrtcLine) IsBonded() bool {

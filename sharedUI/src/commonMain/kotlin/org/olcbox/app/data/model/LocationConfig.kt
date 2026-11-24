@@ -63,7 +63,9 @@ data class LocationConfig(
     @SerialName("bond_vless")
     val bondVlessLink: String? = null,
     @SerialName("bonded_rooms")
-    val bondedRoomConfigs: List<BondRoomConfig> = emptyList()
+    val bondedRoomConfigs: List<BondRoomConfig> = emptyList(),
+    @SerialName("bond_active")
+    val bondActiveRooms: Int? = null
 ) {
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
@@ -94,8 +96,15 @@ data class LocationConfig(
                 bondedRoomConfigs
             } else {
                 normalizedRooms
-            }
+            },
+            bondActiveRooms = bondActiveRooms?.takeIf { it > 0 }
         )
+    }
+
+    fun effectiveBondActiveRooms(): Int {
+        val total = bondedPaths().size
+        val configured = bondActiveRooms ?: return total
+        return configured.coerceIn(1, total.coerceAtLeast(1))
     }
 
     /** The rooms in the order the engine walks them: the primary, then the extras. */
@@ -627,7 +636,9 @@ data class LocationEntry(
     @SerialName("bond_vless")
     val bondVlessLink: String? = null,
     @SerialName("bonded_rooms")
-    val bondedRoomConfigs: List<BondRoomConfig> = emptyList()
+    val bondedRoomConfigs: List<BondRoomConfig> = emptyList(),
+    @SerialName("bond_active")
+    val bondActiveRooms: Int? = null
 ) {
     val location: LocationConfig
         get() {
@@ -658,7 +669,8 @@ data class LocationEntry(
                 rawLink = rawLink,
                 failoverRoomIds = failoverRooms,
                 bondVlessLink = bondVlessLink,
-                bondedRoomConfigs = bondedRoomConfigs
+                bondedRoomConfigs = bondedRoomConfigs,
+                bondActiveRooms = bondActiveRooms
             ).normalized()
         }
 
@@ -685,7 +697,8 @@ data class LocationEntry(
             kind = config.kind,
             rawLink = config.rawLink,
             bondVlessLink = config.bondVlessLink,
-            bondedRoomConfigs = config.bondedRoomConfigs
+            bondedRoomConfigs = config.bondedRoomConfigs,
+            bondActiveRooms = config.bondActiveRooms
         )
     }
 
@@ -714,7 +727,8 @@ data class LocationEntry(
                 kind = config.kind,
                 rawLink = config.rawLink,
                 bondVlessLink = config.bondVlessLink,
-                bondedRoomConfigs = config.bondedRoomConfigs
+                bondedRoomConfigs = config.bondedRoomConfigs,
+                bondActiveRooms = config.bondActiveRooms
             ).normalized()
         }
 

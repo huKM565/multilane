@@ -21,6 +21,7 @@ type Params struct {
 	SettleGrace      time.Duration
 	StartConcurrency int
 	StartStagger     time.Duration
+	OccupancyProbe   RoomOccupancyProbe
 	Logf             func(format string, args ...any)
 }
 
@@ -79,6 +80,11 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
+	probe := p.OccupancyProbe
+	if probe == nil {
+		probe = defaultOccupancyProbe
+	}
+	rooms = SelectRooms(ctx, rooms, p.Line.BondActive, probe, nil, logf)
 
 	ports, err := allocateDistinctPorts(len(rooms))
 	if err != nil {

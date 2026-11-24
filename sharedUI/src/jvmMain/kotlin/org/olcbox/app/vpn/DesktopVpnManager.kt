@@ -54,7 +54,9 @@ import org.olcbox.app.net.XrayConfig
 import org.olcbox.app.net.LocationKind
 import org.olcbox.app.net.OlcrtcDirectRules
 import org.olcbox.app.net.OlcrtcDtls
+import org.olcbox.app.net.createJitsiOccupancyProbe
 import org.olcbox.app.net.planBondPaths
+import org.olcbox.app.net.selectBondPlanByOccupancy
 import org.olcbox.app.net.Routing
 import org.olcbox.app.net.SessionFailover
 import org.olcbox.app.net.SmartConnect
@@ -1737,7 +1739,13 @@ class DesktopVpnManager private constructor(
     ): Int {
         val useLinuxSupervisor = desktopMode == DesktopMode.LinuxTun
         val config = location.normalized()
-        val (paths, ports) = planBondPaths(config, ::allocateBondPort)
+        val planned = planBondPaths(config, ::allocateBondPort)
+        val (paths, ports) = selectBondPlanByOccupancy(
+            planned,
+            config.effectiveBondActiveRooms(),
+            createJitsiOccupancyProbe(),
+            ::addLog,
+        )
         stopDesktopBond()
         stopDesktopCores()
         configureDesktopBondRooms(paths)

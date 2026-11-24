@@ -85,7 +85,9 @@ import org.olcbox.app.net.bondPlanLogLines
 import org.olcbox.app.net.LocationKind
 import org.olcbox.app.net.OlcRtcBond
 import org.olcbox.app.net.planFullPoolAdaptiveBondCore
+import org.olcbox.app.net.createJitsiOccupancyProbe
 import org.olcbox.app.net.planBondPaths
+import org.olcbox.app.net.selectBondPlanByOccupancy
 import org.olcbox.app.net.OlcrtcDirectRules
 import org.olcbox.app.net.OlcrtcDtls
 import org.olcbox.app.net.OutboundSpec
@@ -1473,7 +1475,13 @@ class OlcboxVpnService : VpnService() {
         val keepProcessBound = shouldKeepProcessBound(upstream)
         val config = location.normalized()
         return try {
-            val (paths, ports) = planBondPaths(config, ::freeLoopbackPort)
+            val planned = planBondPaths(config, ::freeLoopbackPort)
+            val (paths, ports) = selectBondPlanByOccupancy(
+                planned,
+                config.effectiveBondActiveRooms(),
+                createJitsiOccupancyProbe(),
+                { msg -> android.util.Log.i(TAG, msg) },
+            )
             resetRtcHealthState()
             ports.forEach { port ->
                 waitForSocksPortReleased(port, SOCKS_RELEASE_QUICK_TIMEOUT_MS)

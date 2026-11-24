@@ -82,7 +82,7 @@ def vless_link(vless):
     return f"vless://{vless['id']}@{host}:{vless['port']}?security=none&encryption=none#VLESS"
 
 
-def render_group(group, rooms, vless):
+def render_group(group, rooms, vless, mamba_active=None):
     output = []
     bond_vless = vless_link(vless)
     for profile, prefix in PROFILES:
@@ -99,6 +99,8 @@ def render_group(group, rooms, vless):
         else:
             output.extend(f"##bond-room: {olc_link(room)}" for room in selected[1:])
         output.append(f"##bond-vless: {bond_vless}")
+        if prefix == "m" and count > 4 and mamba_active is not None:
+            output.append(f"##bond-active: {mamba_active}")
     return output
 
 
@@ -106,7 +108,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--vds", action="append", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--mamba-active", type=int, default=None)
     args = parser.parse_args()
+    mamba_active = args.mamba_active
+    if mamba_active is None and os.environ.get("MAMBA_ACTIVE"):
+        mamba_active = int(os.environ["MAMBA_ACTIVE"])
     if not 1 <= len(args.vds) <= 2:
         raise ValueError("one or two VDS bundles are required")
     lines = []
@@ -115,7 +121,7 @@ def main():
         if group not in ("Германия", "Финляндия"):
             raise ValueError("unexpected VDS group")
         rooms, vless = load_bundle(path)
-        lines.extend(render_group(group, rooms, vless))
+        lines.extend(render_group(group, rooms, vless, mamba_active=mamba_active))
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")

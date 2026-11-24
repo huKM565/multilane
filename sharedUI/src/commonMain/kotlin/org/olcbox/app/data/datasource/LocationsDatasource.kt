@@ -1720,7 +1720,8 @@ class LocationsRepositoryImpl(
                 ),
                 failoverRoomIds = parseFailoverRooms(fields["rooms"]),
                 bondVlessLink = fields["bond-vless"]?.trim()?.takeIf { it.isNotBlank() },
-                bondedRoomConfigs = explicitPaths
+                bondedRoomConfigs = explicitPaths,
+                bondActiveRooms = fields["bond-active"]?.trim()?.toIntOrNull()?.takeIf { it > 0 }
             ).normalized()
             if (!location.isComplete()) {
                 if (fields["bond-vless"] != null) invalidBond = true

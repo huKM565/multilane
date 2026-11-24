@@ -260,6 +260,13 @@ func Entries(subURL string, lines []string) []Entry {
 						VP8Batch:  parsed.VP8Batch,
 					})
 				}
+			case "bond-active":
+				n, err := strconv.Atoi(val)
+				if err != nil || n <= 0 {
+					prev.Problem = fmt.Sprintf("bond-active: invalid count %q", val)
+				} else {
+					prev.Olcrtc.BondActive = n
+				}
 			case "bond-vless":
 				v, err := ParseVless(val)
 				if err != nil {
