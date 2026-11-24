@@ -41,6 +41,9 @@ func runDaemon(args []string, stderr io.Writer) int {
 	probeURL := fs.String("probe-url", "http://cp.cloudflare.com/generate_204", "liveness probe through the tunnel")
 	directRules := fs.String("direct-rules", defaultDirectRulesPath(), "optional direct rules file (domain:/full:/CIDR/.srs per line)")
 	tunnelRules := fs.String("tunnel-rules", "/etc/multilane-tunnel.rules", "optional Podkop-style selective tunnel rules file (only listed domains/CIDRs/.srs go into tunnel, rest direct)")
+	proxyListen := fs.String("proxy-listen", "", "optional mixed SOCKS5+HTTP proxy listen address alongside --tun (e.g. 192.168.31.1:1080)")
+	proxyUser := fs.String("proxy-user", "", "optional username for --proxy-listen")
+	proxyPass := fs.String("proxy-pass", "", "optional password for --proxy-listen")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -113,6 +116,9 @@ func runDaemon(args []string, stderr io.Writer) int {
 		},
 		DirectRulesPath: *directRules,
 		TunnelRulesPath: *tunnelRules,
+		TunProxyListen:  *proxyListen,
+		TunProxyUser:    *proxyUser,
+		TunProxyPass:    *proxyPass,
 		Routes:       routes.New(singbox.TunName),
 		Probe:        daemon.HTTPProbe(*probeURL),
 		Logf:         logf,

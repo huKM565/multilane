@@ -60,6 +60,9 @@ type Deps struct {
 	StartFront      func(ctx context.Context, p singbox.FrontParams) (Front, error)
 	DirectRulesPath string
 	TunnelRulesPath string
+	TunProxyListen  string
+	TunProxyUser    string
+	TunProxyPass    string
 	Routes      Routes
 	Probe       func(ctx context.Context, socksAddr, user, pass string) error
 	Now         func() time.Time

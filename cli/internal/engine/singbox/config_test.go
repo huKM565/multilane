@@ -114,6 +114,28 @@ func TestVlessXhttpRefused(t *testing.T) {
 	}
 }
 
+func TestTunWithMixedProxy(t *testing.T) {
+	p := base(ModeTun)
+	p.TunProxyListen = "192.168.31.1:1080"
+	cfg, err := BuildConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(cfg)
+	for _, want := range []string{`"tag":"tun-in"`, `"tag":"tun-proxy-in"`, `"listen":"192.168.31.1"`, `"listen_port":1080`, `"inbound":["tun-proxy-in"],"outbound":"tunnel"`} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("tun proxy config missing %s:\n%s", want, s)
+		}
+	}
+	if _, err := Parse(cfg); err != nil {
+		t.Fatalf("sing-box refused tun+proxy config: %v", err)
+	}
+	p.TunProxyListen = "0.0.0.0:1080"
+	if _, err := BuildConfig(p); err == nil {
+		t.Fatal("public/wildcard tun proxy without credentials must be refused")
+	}
+}
+
 func TestHysteria2Outbound(t *testing.T) {
 	// Review Focus 3: a pin means insecure, obfs only when given
 	h := &links.Hy2Line{Password: "pw", Host: "203.0.113.9", Port: 38443, SNI: "s.example", PinSHA256: "abcd"}

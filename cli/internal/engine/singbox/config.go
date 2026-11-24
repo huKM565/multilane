@@ -55,6 +55,9 @@ type FrontParams struct {
 	ProbeListen     string
 	ProbeUser       string
 	ProbePass       string
+	TunProxyListen  string
+	TunProxyUser    string
+	TunProxyPass    string
 	DirectRulesFile string
 	TunnelRulesFile string
 	LocalDNS        string
@@ -179,6 +182,28 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 		inbounds = append(inbounds, map[string]any{"type": "mixed", "tag": "probe-in", "listen": phost, "listen_port": pport,
 			"users": []map[string]any{{"username": p.ProbeUser, "password": p.ProbePass}}})
 	}
+	hasTunProxy := false
+	if p.Mode == ModeTun && strings.TrimSpace(p.TunProxyListen) != "" {
+		thost, tportStr, err := net.SplitHostPort(strings.TrimSpace(p.TunProxyListen))
+		if err != nil {
+			return nil, err
+		}
+		tport, err := strconv.Atoi(tportStr)
+		if err != nil || tport < 1 || tport > 65535 {
+			return nil, errors.New("front: invalid tun proxy port")
+		}
+		ip := net.ParseIP(thost)
+		privateOrLoopback := thost == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsPrivate()))
+		if !privateOrLoopback && (p.TunProxyUser == "" || p.TunProxyPass == "") {
+			return nil, errProxyNeedsAuth
+		}
+		tunProxy := map[string]any{"type": "mixed", "tag": "tun-proxy-in", "listen": thost, "listen_port": tport}
+		if p.TunProxyUser != "" {
+			tunProxy["users"] = []map[string]any{{"username": p.TunProxyUser, "password": p.TunProxyPass}}
+		}
+		inbounds = append(inbounds, tunProxy)
+		hasTunProxy = true
+	}
 	directRules := loadRulesFile(p.DirectRulesFile, "direct-rs-")
 	tunnelRules := loadRulesFile(p.TunnelRulesFile, "tunnel-rs-")
 	tunnelOnly := !tunnelRules.empty()
@@ -211,6 +236,9 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 	}
 	if p.ProbeListen != "" {
 		routeRules = append(routeRules, map[string]any{"inbound": []string{"probe-in"}, "outbound": "tunnel"})
+	}
+	if hasTunProxy {
+		routeRules = append(routeRules, map[string]any{"inbound": []string{"tun-proxy-in"}, "outbound": "tunnel"})
 	}
 	routeRules = append(routeRules, directRules.routeRules("direct")...)
 	routeRules = append(routeRules, tunnelRules.routeRules("tunnel")...)

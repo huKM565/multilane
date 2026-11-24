@@ -453,12 +453,18 @@ func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeU
 	d.mu.Lock()
 	proxy := d.cfg.Proxy
 	d.mu.Unlock()
-	return singbox.FrontParams{Mode: singbox.Mode(mode), Upstream: up,
+	fp := singbox.FrontParams{Mode: singbox.Mode(mode), Upstream: up,
 		ProxyListen: proxy.Listen, ProxyPort: proxy.Port, ProxyUser: proxy.User, ProxyPass: proxy.Pass,
 		ExcludeUID: d.deps.UID, InterfaceName: singbox.TunName,
 		ProbeListen: probeAddr, ProbeUser: probeUser, ProbePass: probePass,
 		DirectRulesFile: d.deps.DirectRulesPath,
 		TunnelRulesFile: d.deps.TunnelRulesPath}
+	if mode == "tun" {
+		fp.TunProxyListen = d.deps.TunProxyListen
+		fp.TunProxyUser = d.deps.TunProxyUser
+		fp.TunProxyPass = d.deps.TunProxyPass
+	}
+	return fp
 }
 
 // bringUp connects one entry by its kind:
