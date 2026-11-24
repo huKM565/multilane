@@ -13,11 +13,12 @@ import (
 )
 
 type fakeBondRuntime struct {
-	mu      sync.Mutex
-	udp     bool
-	port    int
-	state   string
-	stopped bool
+	mu          sync.Mutex
+	udp         bool
+	directRules string
+	port        int
+	state       string
+	stopped     bool
 }
 
 func (f *fakeBondRuntime) SetProvider(string) error                 { return nil }
@@ -29,7 +30,7 @@ func (f *fakeBondRuntime) SetSocksListenHost(string) error          { return nil
 func (f *fakeBondRuntime) SetSocksPort(p int) error                 { f.mu.Lock(); f.port = p; f.mu.Unlock(); return nil }
 func (f *fakeBondRuntime) SetSocksCredentials(string, string) error { return nil }
 func (f *fakeBondRuntime) SetUDP(v bool)                            { f.udp = v }
-func (f *fakeBondRuntime) SetDirectRules(string) error              { return nil }
+func (f *fakeBondRuntime) SetDirectRules(r string) error            { f.mu.Lock(); f.directRules = r; f.mu.Unlock(); return nil }
 func (f *fakeBondRuntime) SetDeviceIDPath(string)                   {}
 func (f *fakeBondRuntime) SetVP8Options(int, int) error             { return nil }
 func (f *fakeBondRuntime) Start() error                             { f.mu.Lock(); f.state = "running"; f.mu.Unlock(); return nil }
@@ -115,6 +116,9 @@ func TestBondRecoversDeadRoomWithoutRestartingXray(t *testing.T) {
 	for i, rt := range created {
 		if rt.udp {
 			t.Fatalf("room %d had UDP enabled, want false", i)
+		}
+		if rt.directRules != "" {
+			t.Fatalf("room %d had DirectRules=%q, want empty so bond-vless 127.0.0.1 is tunneled", i, rt.directRules)
 		}
 	}
 	victim := created[1]

@@ -57,6 +57,7 @@ type FrontParams struct {
 	ProbePass       string
 	DirectRulesFile string
 	TunnelRulesFile string
+	LocalDNS        string
 }
 
 var privateRanges = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -192,7 +193,7 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 	dnsCfg := map[string]any{
 		"servers": []map[string]any{
 			{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "tunnel"},
-			{"type": "local", "tag": "local"},
+			localDNSServer(p.LocalDNS),
 		},
 		"final": dnsFinal,
 	}
@@ -305,6 +306,38 @@ func (r parsedRules) routeRules(outbound string) []map[string]any {
 		out = append(out, map[string]any{"rule_set": r.ruleSetTags, "outbound": outbound})
 	}
 	return out
+}
+
+func localDNSServer(override string) map[string]any {
+	if s := strings.TrimSpace(override); s != "" {
+		return map[string]any{"type": "udp", "tag": "local", "server": s}
+	}
+	const openwrtAuto = "/tmp/resolv.conf.d/resolv.conf.auto"
+	if ip := firstNonLoopbackIPv4Nameserver(openwrtAuto); ip != "" {
+		return map[string]any{"type": "udp", "tag": "local", "server": ip}
+	}
+	if _, err := os.Stat(openwrtAuto); err == nil {
+		return map[string]any{"type": "udp", "tag": "local", "server": "77.88.8.8"}
+	}
+	return map[string]any{"type": "local", "tag": "local"}
+}
+
+func firstNonLoopbackIPv4Nameserver(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) >= 2 && fields[0] == "nameserver" {
+			if addr, err := netip.ParseAddr(fields[1]); err == nil && addr.Is4() && !addr.IsLoopback() {
+				return addr.String()
+			}
+		}
+	}
+	return ""
 }
 
 func loadRulesFile(path, tagPrefix string) parsedRules {

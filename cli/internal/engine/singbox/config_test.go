@@ -288,3 +288,18 @@ func TestBuildConfigTunnelRulesFile(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildConfigLocalDNSOverride(t *testing.T) {
+	p := base(ModeTun)
+	p.LocalDNS = "213.87.74.21"
+	cfg, err := BuildConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(cfg); err != nil {
+		t.Fatalf("sing-box refused local UDP DNS config: %v\n%s", err, cfg)
+	}
+	if !strings.Contains(string(cfg), `"server":"213.87.74.21"`) || !strings.Contains(string(cfg), `"type":"udp"`) {
+		t.Fatalf("unexpected DNS config:\n%s", cfg)
+	}
+}

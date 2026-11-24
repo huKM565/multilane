@@ -19,6 +19,8 @@ type Params struct {
 	ReadyTimeout     time.Duration
 	RecoveryInterval time.Duration
 	SettleGrace      time.Duration
+	StartConcurrency int
+	StartStagger     time.Duration
 	Logf             func(format string, args ...any)
 }
 
@@ -93,10 +95,41 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		session *olcrtc.Session
 		err     error
 	}
+	concurrency := p.StartConcurrency
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	stagger := p.StartStagger
+	if stagger == 0 && len(rooms) > 4 {
+		stagger = 250 * time.Millisecond
+	}
+	sem := make(chan struct{}, concurrency)
+
 	results := make(chan roomResult, len(rooms))
 	startCtx, cancelStart := context.WithCancel(ctx)
 	for i, room := range rooms {
 		go func(idx int, r links.BondRoom, port int) {
+			if stagger > 0 && idx > 0 {
+				delay := time.Duration(idx) * stagger
+				if delay > 3*time.Second {
+					delay = 3 * time.Second
+				}
+				t := time.NewTimer(delay)
+				select {
+				case <-t.C:
+				case <-startCtx.Done():
+					t.Stop()
+					results <- roomResult{idx: idx, err: startCtx.Err()}
+					return
+				}
+			}
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-startCtx.Done():
+				results <- roomResult{idx: idx, err: startCtx.Err()}
+				return
+			}
 			s, startErr := olcrtc.Start(startCtx, olcrtc.Params{
 				Line: links.OlcrtcLine{
 					Provider:  r.Provider,
@@ -112,7 +145,7 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 				SocksUser:    roomUser,
 				SocksPass:    roomPass,
 				DNS:          p.DNS,
-				DirectRules:  olcrtc.PrivateDirectRules,
+				DirectRules:  "",
 				DeviceIDPath: p.DeviceIDPath,
 				ReadyTimeout: readyTimeout,
 				DisableUDP:   true,
@@ -281,7 +314,7 @@ func (b *Session) recoverDeadRooms(ctx context.Context) {
 			SocksUser:    b.roomUser,
 			SocksPass:    b.roomPass,
 			DNS:          b.dns,
-			DirectRules:  olcrtc.PrivateDirectRules,
+			DirectRules:  "",
 			DeviceIDPath: b.deviceIDPath,
 			ReadyTimeout: b.readyTimeout,
 			DisableUDP:   true,

@@ -160,19 +160,39 @@ func RandomCredentials() (string, string) {
 // public operator, in the "host:port,host:port" shape SetDNS takes.
 func HostResolvers(resolvConf string) string {
 	var out []string
-	if f, err := os.Open(resolvConf); err == nil {
+	seen := map[string]bool{}
+	addFile := func(path string, skipIPv6Loopback bool) {
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
 		defer f.Close()
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			fields := strings.Fields(sc.Text())
 			if len(fields) >= 2 && fields[0] == "nameserver" {
 				if ip := net.ParseIP(fields[1]); ip != nil {
-					out = append(out, net.JoinHostPort(ip.String(), "53"))
+					if skipIPv6Loopback && ip.IsLoopback() && ip.To4() == nil {
+						continue
+					}
+					hp := net.JoinHostPort(ip.String(), "53")
+					if !seen[hp] {
+						seen[hp] = true
+						out = append(out, hp)
+					}
 				}
 			}
 		}
 	}
-	out = append(out, "1.1.1.1:53")
+	if resolvConf == "/etc/resolv.conf" {
+		addFile("/tmp/resolv.conf.d/resolv.conf.auto", true)
+		addFile(resolvConf, true)
+	} else {
+		addFile(resolvConf, false)
+	}
+	if !seen["1.1.1.1:53"] {
+		out = append(out, "1.1.1.1:53")
+	}
 	return strings.Join(out, ",")
 }
 

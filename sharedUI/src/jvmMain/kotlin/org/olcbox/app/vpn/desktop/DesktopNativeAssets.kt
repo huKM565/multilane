@@ -15,23 +15,25 @@ internal object DesktopNativeAssets {
 
     fun resolveOlcRtcBinaryCandidates(): List<Path> {
         val fileNames = olcRtcFileNames()
-        return fileNames.mapNotNull { resolveOlcRtcBinaryOrNull(it) }.also {
-            if (it.isEmpty()) {
-                error("Bundled native binary is missing: ${fileNames.joinToString(", ") { name -> "native/$name" }}")
+        var lastFailure: Exception? = null
+        val resolved = fileNames.mapNotNull { fileName ->
+            try {
+                resolveBinary(
+                    fileName = fileName,
+                    resourceName = "native/$fileName",
+                    candidates = olcRtcSourceCandidates(fileName)
+                )
+            } catch (e: Exception) {
+                lastFailure = e
+                null
             }
         }
-    }
-
-    private fun resolveOlcRtcBinaryOrNull(fileName: String): Path? {
-        return try {
-            resolveBinary(
-                fileName = fileName,
-                resourceName = "native/$fileName",
-                candidates = olcRtcSourceCandidates(fileName)
-            )
-        } catch (_: Exception) {
-            null
+        if (resolved.isEmpty()) {
+            val missing = "Bundled native binary is missing: ${fileNames.joinToString(", ") { name -> "native/$name" }}"
+            val detail = lastFailure?.message?.takeIf { it.isNotBlank() && !it.startsWith("Bundled native binary is missing:") }
+            throw IllegalStateException(if (detail != null) "$missing ($detail)" else missing, lastFailure)
         }
+        return resolved
     }
 
     private fun olcRtcFileNames(): List<String> {
@@ -103,6 +105,7 @@ internal object DesktopNativeAssets {
         )
     }
 
+    @Synchronized
     private fun resolveBinary(
         fileName: String,
         resourceName: String,
@@ -111,7 +114,9 @@ internal object DesktopNativeAssets {
         val target = DesktopPaths.appDataDir().resolve("bin").resolve(fileName)
         Files.createDirectories(target.parent)
 
-        val resource = javaClass.classLoader.getResourceAsStream(resourceName)
+        val resource = javaClass.classLoader?.getResourceAsStream(resourceName)
+            ?: Thread.currentThread().contextClassLoader?.getResourceAsStream(resourceName)
+            ?: ClassLoader.getSystemResourceAsStream(resourceName)
         if (resource != null) {
             // Windows locks an executable while it runs. A second sing-box
             // instance (TUN front or latency probe) must reuse identical bytes,
