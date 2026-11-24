@@ -233,13 +233,17 @@ for unit in "${units[@]}"; do
       continue
     fi
     if [ "${unit}" = ilyukhaline-xray.service ]; then
-      if [ -f "${backup}/etc/xray.json" ] && cmp -s "${backup}/etc/xray.json" "${stage}/xray.json"; then
+      if [ -f "${backup}/etc/xray.json" ] && cmp -s "${backup}/etc/xray.json" "${stage}/xray.json" &&
+         [ -f "${backup}/opt/bin/xray" ] && cmp -s "${backup}/opt/bin/xray" "${stage}/xray" &&
+         [ -f "${backup}/units/ilyukhaline-xray.service" ] && cmp -s "${backup}/units/ilyukhaline-xray.service" "${stage}/ilyukhaline-xray.service"; then
         keep_active=true
       fi
     else
       label="${unit#ilyukhaline-olcrtc@}"
       label="${label%.service}"
-      if [ -f "${backup}/etc/${label}.yaml" ] && cmp -s "${backup}/etc/${label}.yaml" "${stage}/${label}.yaml"; then
+      if [ -f "${backup}/etc/${label}.yaml" ] && cmp -s "${backup}/etc/${label}.yaml" "${stage}/${label}.yaml" &&
+         [ -f "${backup}/opt/bin/olcrtc" ] && cmp -s "${backup}/opt/bin/olcrtc" "${stage}/olcrtc" &&
+         [ -f "${backup}/units/ilyukhaline-olcrtc@.service" ] && cmp -s "${backup}/units/ilyukhaline-olcrtc@.service" "${stage}/ilyukhaline-olcrtc@.service"; then
         keep_active=true
       fi
     fi
