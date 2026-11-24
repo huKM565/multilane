@@ -199,7 +199,7 @@ func BuildBondConfig(p BondParams) ([]byte, error) {
 						"type": "leastLoad",
 						"settings": map[string]any{
 							"expected":  expected,
-							"maxRTT":    "2s",
+							"maxRTT":    "5s",
 							"tolerance": 0.20,
 							"baselines": []string{"500ms"},
 							"costs":     costEntries,
@@ -210,9 +210,9 @@ func BuildBondConfig(p BondParams) ([]byte, error) {
 		},
 		"observatory": map[string]any{
 			"subjectSelector":   selector,
-			"probeUrl":          "https://connectivitycheck.gstatic.com/generate_204",
-			"probeInterval":     "8s",
-			"enableConcurrency": true,
+			"probeUrl":          "http://cp.cloudflare.com/generate_204",
+			"probeInterval":     "30s",
+			"enableConcurrency": false,
 		},
 	}
 	return json.Marshal(cfg)

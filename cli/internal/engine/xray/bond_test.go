@@ -35,8 +35,8 @@ func TestBuildBondConfigLoadsInRealXrayCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	obs := parsed["observatory"].(map[string]any)
-	if obs["probeInterval"] != "8s" {
-		t.Fatalf("probeInterval = %v, want 8s", obs["probeInterval"])
+	if obs["probeInterval"] != "30s" {
+		t.Fatalf("probeInterval = %v, want 30s", obs["probeInterval"])
 	}
 	routing := parsed["routing"].(map[string]any)
 	balancers := routing["balancers"].([]any)
