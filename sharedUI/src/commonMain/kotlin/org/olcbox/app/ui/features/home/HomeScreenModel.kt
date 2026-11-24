@@ -286,9 +286,14 @@ class HomeScreenViewModel(
                 locationsRepository.setActiveLocationId(step.entry.storageId)
                 loadCurrentConfigNow()
             }
-            locationsRepository.saveSubscriptionSettings(
-                settings.copy(lastKnownGoodTransport = settings.lastKnownGoodTransport + (key to step.entry.storageId))
-            )
+            locationsRepository.changeSubscriptionSettings { current ->
+                current.copy(lastKnownGoodTransport = current.lastKnownGoodTransport + (key to step.entry.storageId))
+            }
+            if (_subscriptionSettingsLoaded.value) {
+                _subscriptionSettings.update { current ->
+                    current.copy(lastKnownGoodTransport = current.lastKnownGoodTransport + (key to step.entry.storageId))
+                }
+            }
             val progress = when {
                 step is SmartConnect.Step.Connect && whitelist -> getString(Res.string.smart_whitelist_through, label)
                 step is SmartConnect.Step.Connect -> getString(Res.string.smart_last_resort_through, label)
@@ -860,12 +865,6 @@ class HomeScreenViewModel(
                 onComplete()
             } catch (e: Exception) {
                 val message = e.message ?: getString(Res.string.import_failed)
-                _state.update {
-                    it.copy(
-                        canStartVpn = false,
-                        startBlockedReason = message
-                    )
-                }
                 onError(message)
             }
         }

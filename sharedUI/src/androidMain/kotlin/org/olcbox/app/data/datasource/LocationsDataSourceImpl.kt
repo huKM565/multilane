@@ -25,6 +25,7 @@ class LocationsDataSourceImpl(
 
     private val json = Json {
         ignoreUnknownKeys = true
+        coerceInputValues = true
         encodeDefaults = true
         explicitNulls = false
         prettyPrint = true

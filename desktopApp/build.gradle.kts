@@ -633,7 +633,7 @@ if (currentBuildOs.isLinux) {
     val appDir = layout.buildDirectory.dir("compose/binaries/main-release/appimage/AppDir")
     val linuxIconFile = layout.projectDirectory.file("appIcons/LinuxIcon.png")
     val appImageFile = layout.buildDirectory.file(
-        "compose/binaries/main-release/appimage/$desktopPackageName-$desktopPackageVersion-$hostDesktopArch.AppImage"
+        "compose/binaries/main-release/appimage/$desktopPackageName-$desktopPackageVersion-linux-$hostDesktopArch.AppImage"
     )
 
     val prepareReleaseLinuxAppDir = tasks.register<Exec>("prepareReleaseLinuxAppDir") {

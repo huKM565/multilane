@@ -71,10 +71,12 @@ object SingBoxConfig {
         login: SocksLogin? = null,
         serverResolver: DirectDns? = null,
         autoDetectInterface: Boolean = false,
+        verifyPort: Int? = null,
     ): String = render(
         socksPort, routing, verboseLogs, login,
         serverResolver = serverResolver.takeIf { !XrayConfig.isIpLiteral(outbound.host) },
-        autoDetectInterface = autoDetectInterface
+        autoDetectInterface = autoDetectInterface,
+        verifyPort = verifyPort,
     ) { addOutbound(outbound) }
 
     /// iOS addressing. Fixed rather than negotiated: the extension applies these
@@ -173,7 +175,8 @@ object SingBoxConfig {
         routing: Routing = Routing.Global,
         verboseLogs: Boolean = false,
         login: SocksLogin? = null,
-    ): String = render(socksPort, routing, verboseLogs, login) {
+        verifyPort: Int? = null,
+    ): String = render(socksPort, routing, verboseLogs, login, verifyPort = verifyPort) {
         addSocksOutbound(upstreamPort, username, password)
     }
 
@@ -446,6 +449,12 @@ object SingBoxConfig {
                         addJsonObject { put("action", "hijack-dns"); put("port", 53) }
                     }
                     if (answersEveryName) letTheLinesOut()
+                    if (verifyPort != null && bypass != null && bypass.policy == Routing.Policy.BlockedOnly) {
+                        addJsonObject {
+                            putJsonArray("inbound") { add("verify-in") }
+                            put("outbound", "out")
+                        }
+                    }
                     if (bypass != null) addPolicyRouteRules(bypass)
                     // IPv6 is claimed and refused, not carried.
                     //
@@ -668,16 +677,13 @@ object SingBoxConfig {
         login: SocksLogin?,
         serverResolver: DirectDns? = null,
         autoDetectInterface: Boolean = false,
+        verifyPort: Int? = null,
         outbounds: JsonArrayBuilder.() -> Unit
     ): String {
         val bypass = routing as? Routing.RuleBased
-        // The rule-based shape resolves the server's name itself (putBypassRoute).
         val resolver = serverResolver.takeIf { bypass == null }
+        val hasVerifyInbound = verifyPort != null && bypass != null && bypass.policy == Routing.Policy.BlockedOnly
         val obj = buildJsonObject {
-            // Without this sing-box applies its own default, which is "info" — and
-            // that names every connection the user makes, in a log we invite them to
-            // export. This renderer is behind the plain socks path, so it is the one
-            // most users are actually on.
             putJsonObject("log") { put("level", coreLogLevel(verboseLogs)) }
             if (bypass != null) putBypassDns(bypass, remoteOverTcp = false)
             if (resolver != null) putJsonObject("dns") {
@@ -694,14 +700,25 @@ object SingBoxConfig {
                         }
                     }
                 }
+                if (hasVerifyInbound) {
+                    addJsonObject {
+                        put("type", "socks"); put("tag", "verify-in")
+                        put("listen", "127.0.0.1"); put("listen_port", verifyPort)
+                        if (login != null) putJsonArray("users") {
+                            addJsonObject {
+                                put("username", login.username)
+                                put("password", login.password)
+                            }
+                        }
+                    }
+                }
             }
             putJsonArray("outbounds") {
                 outbounds()
                 if (bypass != null) addDirectOutbound()
             }
-            if (bypass != null) putBypassRoute(bypass, autoDetectInterface)
+            if (bypass != null) putBypassRoute(bypass, autoDetectInterface, hasVerifyInbound)
             if (bypass == null && (resolver != null || autoDetectInterface)) putJsonObject("route") {
-                // What an outbound uses to dial a name: here, only the server's own.
                 if (resolver != null) put("default_domain_resolver", "dns-direct")
                 if (autoDetectInterface) put("auto_detect_interface", true)
             }
@@ -937,13 +954,18 @@ object SingBoxConfig {
         }
     }
 
-    /** One rule for [rules]: a name ending in one of the domains, or an address in one of the prefixes. */
     private fun JsonArrayBuilder.addCustomRouteRule(rules: List<RoutingRule>, outbound: String) {
-        if (rules.isEmpty()) return
-        addJsonObject {
-            if (rules.domains.isNotEmpty()) putJsonArray("domain_suffix") { rules.domains.forEach { add(it) } }
-            if (rules.cidrs.isNotEmpty()) putJsonArray("ip_cidr") { rules.cidrs.forEach { add(it) } }
-            put("outbound", outbound)
+        if (rules.domains.isNotEmpty()) {
+            addJsonObject {
+                putJsonArray("domain_suffix") { rules.domains.forEach { add(it) } }
+                put("outbound", outbound)
+            }
+        }
+        if (rules.cidrs.isNotEmpty()) {
+            addJsonObject {
+                putJsonArray("ip_cidr") { rules.cidrs.forEach { add(it) } }
+                put("outbound", outbound)
+            }
         }
     }
 
@@ -977,13 +999,23 @@ object SingBoxConfig {
      * network underneath. Tunnel-bound names never reach it; sing-box sends
      * those to the server unresolved.
      */
-    private fun JsonObjectBuilder.putBypassRoute(bypass: Routing.RuleBased, autoDetectInterface: Boolean = false) {
+    private fun JsonObjectBuilder.putBypassRoute(
+        bypass: Routing.RuleBased,
+        autoDetectInterface: Boolean = false,
+        hasVerifyInbound: Boolean = false,
+    ) {
         putJsonObject("route") {
             if (autoDetectInterface) put("auto_detect_interface", true)
             putRuleSetDeclarations(bypass)
             putJsonArray("rules") {
                 addJsonObject { put("action", "sniff") }
                 addJsonObject { put("action", "hijack-dns"); put("port", 53) }
+                if (hasVerifyInbound) {
+                    addJsonObject {
+                        putJsonArray("inbound") { add("verify-in") }
+                        put("outbound", "out")
+                    }
+                }
                 addPolicyRouteRules(bypass)
             }
             put("final", finalOutbound(bypass))

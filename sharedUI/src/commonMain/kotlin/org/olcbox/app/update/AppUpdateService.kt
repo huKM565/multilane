@@ -188,11 +188,11 @@ class AppUpdateService(
             candidates: List<GithubReleaseAsset>,
             preferredExtensions: List<String>
         ): GithubReleaseAsset? {
+            if (preferredExtensions.isEmpty()) return candidates.firstOrNull()
             return preferredExtensions
                 .firstNotNullOfOrNull { extension ->
                     candidates.firstOrNull { it.name.lowercase().endsWith(extension) }
                 }
-                ?: candidates.firstOrNull()
         }
 
         fun isUpdateAvailable(

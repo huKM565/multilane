@@ -235,7 +235,8 @@ class DesktopVpnManager private constructor(
     private var tunProcess: Process? = null
     private var olcRtcConfigPath: Path? = null
     private var olcRtcDirectRulesPath: Path? = null
-    private var generation = 0L
+    private val generationCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    private val generation: Long get() = generationCounter.get()
 
     /**
      * The generation of the request whose line is running or being started:
@@ -470,8 +471,22 @@ class DesktopVpnManager private constructor(
     override fun needsPermission(): Boolean = false
 
     override fun startVpn() {
-        val requestGeneration = ++generation
+        val requestGeneration = generationCounter.incrementAndGet()
         operationJob = scope.launch {
+            if (DesktopMode.current() == DesktopMode.WindowsTun) {
+                val active = locationsRepository.getActiveLocation()?.location?.normalized()
+                if (active != null && active.isComplete()) {
+                    try {
+                        windowsTunController.ensureAdministratorOrRequestRestart()
+                    } catch (e: Exception) {
+                        if (e !is CancellationException && requestGeneration == generation) {
+                            addLog("Desktop start failed: ${e.message}")
+                            setStatus(VpnStatus.Error(e.message ?: "Desktop start failed"))
+                        }
+                        return@launch
+                    }
+                }
+            }
             mutex.withLock {
                 if (requestGeneration != generation) return@withLock
 
@@ -483,13 +498,7 @@ class DesktopVpnManager private constructor(
                         tunProcess != null
 
                 if (shouldRestart) {
-                    // Inside a session another location is another line behind
-                    // what the session holds, which is not taken down for it.
                     if (changeLineBehindTun(requestGeneration)) return@withLock
-                    // Superseded while that was being decided. The newer
-                    // request decides for itself, and has to find the session
-                    // as it is, not torn down for a request nobody wants any
-                    // more.
                     if (requestGeneration != generation) return@withLock
 
                     setStatus(VpnStatus.Reconnecting)
@@ -505,7 +514,7 @@ class DesktopVpnManager private constructor(
     }
 
     override fun stopVpn() {
-        generation++
+        generationCounter.incrementAndGet()
         operationJob = scope.launch {
             mutex.withLock {
                 stopDesktopMode(finalStatus = true)
@@ -786,7 +795,7 @@ class DesktopVpnManager private constructor(
 
     fun close() {
         runBlocking {
-            generation++
+            generationCounter.incrementAndGet()
 
             mutex.withLock {
                 stopDesktopMode(finalStatus = true)
@@ -852,10 +861,7 @@ class DesktopVpnManager private constructor(
             // Which sing-box and Xray processes the line cannot do without, as
             // whoever starts them says it; none for a room reached directly.
             var coresAlive: (() -> Boolean)? = null
-
-            if (desktopMode == DesktopMode.WindowsTun) {
-                windowsTunController.ensureAdministratorOrRequestRestart()
-            }
+            val frontRequiresLogin = isOlcrtc && isBondedDesktopTun(location, desktopMode) && desktopMode != DesktopMode.SystemProxy
 
             // Branch on location kind: olcrtc uses the existing engine path
             // (unchanged); vless/hy2/xhttp start a sing-box/Xray core on the core
@@ -977,19 +983,20 @@ class DesktopVpnManager private constructor(
             val ownResolvers = if (desktopMode == DesktopMode.SystemProxy) null else DesktopDnsResolver.ownServers()
             var letsEveryLineOut = true
 
+            val sessionEndpoint = LineSupervision.endpointOf(
+                isOlcrtc = isOlcrtc,
+                linePort = effectiveSocksPort,
+                frontPort = frontPort,
+                username = socksSettings.username,
+                password = socksSettings.password,
+                frontRequiresLogin = frontRequiresLogin
+            )
+
             when (desktopMode) {
                 DesktopMode.LinuxTun -> startLinuxTun(
                     effectiveSocksPort,
                     requestGeneration,
-                    // What hev has to send: the session's endpoint, as the tun's
-                    // outbound sends it on the other systems.
-                    login = LineSupervision.endpointOf(
-                        isOlcrtc = isOlcrtc,
-                        linePort = effectiveSocksPort,
-                        frontPort = frontPort,
-                        username = socksSettings.username,
-                        password = socksSettings.password
-                    ).login
+                    login = sessionEndpoint.login
                 )
                 DesktopMode.WindowsTun -> {
                     val tunRouting: Routing = if (rulesHome == DesktopRulesHome.Daemon) {
@@ -1128,15 +1135,13 @@ class DesktopVpnManager private constructor(
             // core would have. That inbound has no auth; only the olcRTC core's has.
             val tunVerifyPort = if (desktopMode == DesktopMode.MacTun) macTunVerifyPort else null
             val verifiedThroughTun = tunVerifyPort != null
-            // Through the front when there is one: it has no auth, and a green
-            // light has to be about the chain the traffic actually takes.
-            val directToOlcrtc = isOlcrtc && !verifiedThroughTun && frontPort == null
+            val endpointLogin = if (verifiedThroughTun) null else sessionEndpoint.login
             channelProxy = if (desktopMode == DesktopMode.WindowsTun) windowsTunVerifyProxy else {
                 SubscriptionFetchProxy(
                     socksSettings.host,
                     tunVerifyPort ?: (frontPort ?: effectiveSocksPort),
-                    if (directToOlcrtc) socksSettings.username else "",
-                    if (directToOlcrtc) socksSettings.password else ""
+                    endpointLogin?.username.orEmpty(),
+                    endpointLogin?.password.orEmpty()
                 )
             }
             val exit = when {
@@ -1152,8 +1157,8 @@ class DesktopVpnManager private constructor(
                 else -> org.olcbox.app.net.TunnelVerifier.verify(
                     socksHost = socksSettings.host,
                     socksPort = frontPort ?: effectiveSocksPort,
-                    username = if (directToOlcrtc) socksSettings.username else "",
-                    password = if (directToOlcrtc) socksSettings.password else ""
+                    username = endpointLogin?.username.orEmpty(),
+                    password = endpointLogin?.password.orEmpty()
                 )
             }
             if (requestGeneration != generation) {
@@ -1167,34 +1172,21 @@ class DesktopVpnManager private constructor(
                 DesktopMode.SystemProxy -> "Desktop proxy"
             }
             if (exit == null) {
-                // The tunnel is up as far as we could set it up, but nothing came
-                // back. Say so plainly rather than showing a green light.
                 if (desktopMode == DesktopMode.MacTun) {
-                    // And say which half: the tunnel's own words, and the line asked
-                    // without the tunnel. On a Mac in the field this error stood alone
-                    // in the log, and nothing in it told a tunnel that was not serving
-                    // from a room that carried nothing.
                     explainNothingCameBack(
                         host = socksSettings.host,
                         linePort = frontPort ?: effectiveSocksPort,
-                        username = if (isOlcrtc && frontPort == null) socksSettings.username else "",
-                        password = if (isOlcrtc && frontPort == null) socksSettings.password else ""
+                        username = sessionEndpoint.login?.username.orEmpty(),
+                        password = sessionEndpoint.login?.password.orEmpty()
                     )
                 }
                 error("$transport is up but no traffic reached the internet through it")
             }
             _exitInfo.value = exit
-            // LAN settings may change while the primary tunnel is still being
-            // verified. Read the current value here so a regenerated password or
-            // an off toggle cannot start a listener with the stale snapshot.
             val currentLanSettings = _socksProxySettings.value
             if (currentLanSettings.shareOnLan) {
                 startLanSharing(currentLanSettings, channelProxy!!, requestGeneration)
             }
-            // The session holds its tunnel from here, the first verified
-            // connection: a core or an engine that dies after this is started
-            // again behind it with what is written down now, and another
-            // location is started behind it as a line that fits it.
             val line = SessionLine(
                 session = HeldSession(
                     built = SessionBuild(
@@ -1203,13 +1195,7 @@ class DesktopVpnManager private constructor(
                         socks = socksSettings,
                         letsEveryLineOut = letsEveryLineOut
                     ),
-                    endpoint = LineSupervision.endpointOf(
-                        isOlcrtc = isOlcrtc,
-                        linePort = effectiveSocksPort,
-                        frontPort = frontPort,
-                        username = socksSettings.username,
-                        password = socksSettings.password
-                    ),
+                    endpoint = sessionEndpoint,
                     tunListener = channelProxy.takeIf {
                         desktopMode == DesktopMode.WindowsTun || verifiedThroughTun
                     },
@@ -1969,7 +1955,6 @@ class DesktopVpnManager private constructor(
         val bond = desktopOlcRtcBond ?: return true
         var activeRooms = bond.activeIndexes()
         setDesktopBondRooms(activeRooms)
-        if (activeRooms.isEmpty()) return false
 
         if (activeRooms.size < bond.rooms.size) {
             activeRooms = recoverDesktopBondRooms(bond)

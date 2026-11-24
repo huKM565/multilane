@@ -198,12 +198,8 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 		"final": dnsFinal,
 	}
 	var dnsRules []map[string]any
-	if r := directRules.dnsRule("local"); r != nil {
-		dnsRules = append(dnsRules, r)
-	}
-	if r := tunnelRules.dnsRule("remote"); r != nil {
-		dnsRules = append(dnsRules, r)
-	}
+	dnsRules = append(dnsRules, directRules.dnsRules("local")...)
+	dnsRules = append(dnsRules, tunnelRules.dnsRules("remote")...)
 	if len(dnsRules) > 0 {
 		dnsCfg["rules"] = dnsRules
 	}
@@ -212,13 +208,15 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "outbound": "direct"},
-		{"ip_version": 6, "action": "reject"},
 	}
 	if p.ProbeListen != "" {
 		routeRules = append(routeRules, map[string]any{"inbound": []string{"probe-in"}, "outbound": "tunnel"})
 	}
 	routeRules = append(routeRules, directRules.routeRules("direct")...)
 	routeRules = append(routeRules, tunnelRules.routeRules("tunnel")...)
+	if !tunnelOnly {
+		routeRules = append(routeRules, map[string]any{"ip_version": 6, "action": "reject"})
+	}
 
 	routeCfg := map[string]any{
 		"rules":                   routeRules,
@@ -258,27 +256,28 @@ func (r parsedRules) empty() bool {
 		len(r.regexps) == 0 && len(r.cidrs) == 0 && len(r.ruleSetTags) == 0
 }
 
-func (r parsedRules) dnsRule(server string) map[string]any {
-	if len(r.suffixes) == 0 && len(r.full) == 0 && len(r.keywords) == 0 && len(r.regexps) == 0 && len(r.ruleSetTags) == 0 {
-		return nil
-	}
-	m := map[string]any{"server": server}
-	if len(r.suffixes) > 0 {
-		m["domain_suffix"] = r.suffixes
-	}
-	if len(r.full) > 0 {
-		m["domain"] = r.full
-	}
-	if len(r.keywords) > 0 {
-		m["domain_keyword"] = r.keywords
-	}
-	if len(r.regexps) > 0 {
-		m["domain_regex"] = r.regexps
+func (r parsedRules) dnsRules(server string) []map[string]any {
+	var out []map[string]any
+	if len(r.suffixes) > 0 || len(r.full) > 0 || len(r.keywords) > 0 || len(r.regexps) > 0 {
+		m := map[string]any{"server": server}
+		if len(r.suffixes) > 0 {
+			m["domain_suffix"] = r.suffixes
+		}
+		if len(r.full) > 0 {
+			m["domain"] = r.full
+		}
+		if len(r.keywords) > 0 {
+			m["domain_keyword"] = r.keywords
+		}
+		if len(r.regexps) > 0 {
+			m["domain_regex"] = r.regexps
+		}
+		out = append(out, m)
 	}
 	if len(r.ruleSetTags) > 0 {
-		m["rule_set"] = r.ruleSetTags
+		out = append(out, map[string]any{"server": server, "rule_set": r.ruleSetTags})
 	}
-	return m
+	return out
 }
 
 func (r parsedRules) routeRules(outbound string) []map[string]any {
@@ -318,6 +317,11 @@ func localDNSServer(override string) map[string]any {
 	}
 	if _, err := os.Stat(openwrtAuto); err == nil {
 		return map[string]any{"type": "udp", "tag": "local", "server": "77.88.8.8"}
+	}
+	if firstNonLoopbackIPv4Nameserver("/etc/resolv.conf") == "" {
+		if ip := firstNonLoopbackIPv4Nameserver("/run/systemd/resolve/resolv.conf"); ip != "" {
+			return map[string]any{"type": "udp", "tag": "local", "server": ip}
+		}
 	}
 	return map[string]any{"type": "local", "tag": "local"}
 }

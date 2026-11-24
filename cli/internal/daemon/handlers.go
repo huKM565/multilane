@@ -89,7 +89,11 @@ func (d *Daemon) status() *ipc.Status {
 			sv.URL = "inline line"
 		} else if c, _ := store.LoadCache(d.deps.StateDir, s.URL); c != nil {
 			sv.FetchedAt = c.FetchedAt.UTC().Format(time.RFC3339)
-			sv.NextRefresh = c.FetchedAt.Add(time.Duration(max(s.IntervalHours, 1)) * time.Hour).UTC().Format(time.RFC3339)
+			hours := s.IntervalHours
+			if hours <= 0 {
+				hours = 24
+			}
+			sv.NextRefresh = c.FetchedAt.Add(time.Duration(hours) * time.Hour).UTC().Format(time.RFC3339)
 			sv.UserInfo = c.Headers.UserInfo
 			// the last refresh's own failure, if it had one, is the newer news
 			if why := refusalText(c); why != "" && sv.Error == "" {
@@ -180,14 +184,30 @@ func (d *Daemon) add(ctx context.Context, source string) ipc.Response {
 				return ipc.Response{OK: true, Message: "already added"}
 			}
 		}
-		d.cfg.Subscriptions = append(d.cfg.Subscriptions, store.Subscription{URL: payload, AddedAt: d.deps.Now()})
 		d.mu.Unlock()
 		c, err := d.fetchInto(ctx, payload)
 		if err != nil {
-			d.mu.Lock()
-			d.cfg.Subscriptions = d.cfg.Subscriptions[:len(d.cfg.Subscriptions)-1]
-			d.mu.Unlock()
 			return ipc.Fail("fetch", Scrub(err.Error()))
+		}
+		d.mu.Lock()
+		already := false
+		for _, s := range d.cfg.Subscriptions {
+			if s.URL == payload {
+				already = true
+				break
+			}
+		}
+		if !already {
+			d.cfg.Subscriptions = append(d.cfg.Subscriptions, store.Subscription{
+				URL:           payload,
+				Title:         c.Headers.Title,
+				IntervalHours: c.Headers.UpdateIntervalHours,
+				AddedAt:       d.deps.Now(),
+			})
+		}
+		d.mu.Unlock()
+		if already {
+			return ipc.Response{OK: true, Message: "already added"}
 		}
 		title := firstNonEmpty(c.Headers.Title, store.MaskURL(payload))
 		if why := refusalText(c); why != "" {
@@ -262,6 +282,10 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (d *Daemon) remove(needle string) ipc.Response {
+	needle = strings.TrimSpace(needle)
+	if needle == "" {
+		return ipc.Fail("no_match", "no subscription matches empty selector")
+	}
 	d.mu.Lock()
 	kept := d.cfg.Subscriptions[:0:0]
 	removed := 0
@@ -269,12 +293,15 @@ func (d *Daemon) remove(needle string) ipc.Response {
 	for _, s := range d.cfg.Subscriptions {
 		if matchesSub(s.URL, needle) || s.Title == needle {
 			removed++
-			if d.sel != nil && d.sel.Subscription == s.URL {
+			if d.sel != nil && (d.sel.Subscription == s.URL || d.sel.EntrySub == s.URL) {
 				dropSelection = true
 			}
 			continue
 		}
 		kept = append(kept, s)
+	}
+	if len(kept) == 0 && d.sel != nil {
+		dropSelection = true
 	}
 	d.cfg.Subscriptions = kept
 	d.mu.Unlock()
@@ -306,7 +333,7 @@ func (d *Daemon) connect(ctx context.Context, req ipc.Request) ipc.Response {
 	listen := d.cfg.Proxy.Listen
 	d.mu.Unlock()
 	if nsubs == 0 {
-		return ipc.Fail("no_subscription", "add a list first: ghostlane add <url>")
+		return ipc.Fail("no_subscription", "add a list first: multilane-cli add <url>")
 	}
 	if mode == "proxy" && net.ParseIP(listen) == nil {
 		return ipc.Fail("bad_listen", "proxy.listen must be an IP address (127.0.0.1, ::1 or 0.0.0.0), not "+listen)

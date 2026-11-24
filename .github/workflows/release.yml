@@ -331,7 +331,7 @@ jobs:
           path: olcrtc
           submodules: recursive
 
-      - name: Apply IlyukhaLine olcRTC occupancy patch
+      - name: Apply MultiLane olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
         run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
@@ -504,7 +504,7 @@ jobs:
           path: olcrtc
           submodules: recursive
 
-      - name: Apply IlyukhaLine olcRTC occupancy patch
+      - name: Apply MultiLane olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
         run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
@@ -716,6 +716,10 @@ jobs:
           path: olcrtc
           submodules: recursive
 
+      - name: Apply MultiLane olcRTC occupancy patch
+        working-directory: olcrtc
+        run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+
       - name: Install Linux packaging deps
         run: |
           sudo apt-get update
@@ -866,7 +870,7 @@ jobs:
         with:
           name: Ghostlane-cli-linux
           path: |
-            cli/dist/ghostlane-cli-*
+            cli/dist/multilane-cli-*
             cli/dist/install.sh
 
   build-android:
@@ -907,7 +911,7 @@ jobs:
           path: olcrtc
           submodules: recursive
 
-      - name: Apply IlyukhaLine olcRTC occupancy patch
+      - name: Apply MultiLane olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
         run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
@@ -1295,7 +1299,7 @@ jobs:
           "$RUNNER_TEMP/play-venv/bin/pip" install --quiet google-api-python-client google-auth
           "$RUNNER_TEMP/play-venv/bin/python" scripts/play-upload.py \
             --service-account "$sa" \
-            --package org.proofkit.app \
+            --package ru.hukm.ilyukhaline \
             --bundle "dist/Ghostlane-${OLCBOX_VERSION}-android-play.aab" \
             --track "${PLAY_TRACK}" \
             --release-name "${OLCBOX_VERSION}" \
@@ -1353,7 +1357,7 @@ jobs:
           path: olcrtc
           submodules: recursive
 
-      - name: Apply IlyukhaLine olcRTC occupancy patch
+      - name: Apply MultiLane olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
         run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
@@ -1883,13 +1887,12 @@ jobs:
           # auto-update behavior unchanged — these exist purely for manual download.
           if gh release view "$version_tag" >/dev/null 2>&1; then
             echo "Release ${version_tag} already exists; refreshing notes + assets"
-            gh release edit "$version_tag" --notes-file versioned-notes.md --prerelease --draft=false
+            gh release edit "$version_tag" --notes-file versioned-notes.md --prerelease=false --draft=false
           else
             gh release create "$version_tag" \
               --target "$GITHUB_SHA" \
-              --title "Ghostlane ${OLCBOX_VERSION}" \
+              --title "MultiLane ${OLCBOX_VERSION}" \
               --notes-file versioned-notes.md \
-              --prerelease \
               --draft
           fi
 
@@ -1909,7 +1912,7 @@ jobs:
             done
           done
 
-          gh release edit "$version_tag" --draft=false --prerelease
+          gh release edit "$version_tag" --draft=false --prerelease=false
       - name: Publish public GitHub Release assets
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}

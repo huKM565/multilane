@@ -96,7 +96,7 @@ class XrayConfigDumpTest {
                 roomUsername = "room-user",
                 roomPassword = "room-pass",
                 adaptive = BondScheduling(
-                    expected = 4,
+                    expected = 12,
                     costs = listOf(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 1.0, 1.25, 0.75, 2.25, 3.5),
                 ),
             )

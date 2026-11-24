@@ -145,9 +145,10 @@ internal object LineSupervision {
         linePort: Int,
         frontPort: Int?,
         username: String,
-        password: String
+        password: String,
+        frontRequiresLogin: Boolean = false
     ): SessionEndpoint {
-        val asksForLogin = isOlcrtc && frontPort == null && username.isNotBlank()
+        val asksForLogin = ((isOlcrtc && frontPort == null) || frontRequiresLogin) && username.isNotBlank()
         return SessionEndpoint(
             port = frontPort ?: linePort,
             login = if (asksForLogin) SocksLogin(username, password) else null

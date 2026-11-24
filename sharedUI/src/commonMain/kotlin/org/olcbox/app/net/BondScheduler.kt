@@ -56,7 +56,7 @@ fun bondScheduling(samples: List<BondRoomSample?>): BondScheduling {
     val reference = valid.filterNotNull().map { it.bytesPerSecond }.takeIf { it.isNotEmpty() }?.let(::median)
         ?: return BondScheduling(samples.size, List(samples.size) { 1.0 })
     return BondScheduling(
-        expected = minOf(4, samples.size),
+        expected = samples.size,
         costs = valid.map { sample ->
             if (sample == null) return@map 4.0
             (reference / sample.bytesPerSecond).coerceIn(0.5, 4.0)
@@ -109,7 +109,7 @@ suspend fun planFullPoolAdaptiveBondCore(
     val fullSamples = fullIndexes.map { sampleByIndex[it] }
     val fullCosts = fullIndexes.map { costByIndex[it] ?: 1.0 }
     val scheduling = BondScheduling(
-        expected = minOf(4, allPorts.size),
+        expected = allPorts.size,
         costs = fullCosts,
         fallbackIndex = activeRooms.first(),
     )

@@ -79,10 +79,14 @@ internal class WindowsTunController(
         val currentCommand = processInfo.command().orElse(null)
             ?: error("MultiLane cannot resolve its Windows launcher for administrator restart")
         val currentArguments = processInfo.arguments().orElse(emptyArray()).toList()
-        val restartArguments = if (ELEVATED_START_ARGUMENT in currentArguments) {
-            currentArguments
-        } else {
-            currentArguments + ELEVATED_START_ARGUMENT
+        val restartArguments = buildList {
+            addAll(currentArguments)
+            if (ELEVATED_START_ARGUMENT !in currentArguments) {
+                add(ELEVATED_START_ARGUMENT)
+            }
+            if (currentArguments.none { it.startsWith(APP_DATA_DIR_ARGUMENT_PREFIX) }) {
+                add("$APP_DATA_DIR_ARGUMENT_PREFIX${org.olcbox.app.desktop.DesktopPaths.appDataDir().toAbsolutePath()}")
+            }
         }
 
         runPowerShell(
@@ -116,6 +120,7 @@ internal class WindowsTunController(
     internal companion object {
         const val TUN_NAME = "Olcbox"
         const val ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-elevation"
+        const val APP_DATA_DIR_ARGUMENT_PREFIX = "--olcbox-app-data-dir="
 
         /**
          * Whether a line of the tun core's output says the system's filtering

@@ -14,7 +14,7 @@ import kotlin.test.fail
 class BondSchedulerTest {
     @Test
     fun expectedUsesAtMostFourRooms() {
-        for ((count, expected) in mapOf(1 to 1, 4 to 4, 8 to 4, 12 to 4)) {
+        for ((count, expected) in mapOf(1 to 1, 4 to 4, 8 to 8, 12 to 12)) {
             val samples = List(count) { sample(it, 100.0) }
             assertEquals(expected, bondScheduling(samples).expected)
             assertEquals(List(count) { 1.0 }, bondScheduling(samples).costs)

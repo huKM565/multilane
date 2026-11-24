@@ -112,6 +112,9 @@ func (m *Manager) existing() ([]netip.Addr, error) {
 	for _, fam := range []int{unix.AF_INET, unix.AF_INET6} {
 		rules, err := netlink.RuleList(fam)
 		if err != nil {
+			if fam == unix.AF_INET6 && tolerableV6(err) {
+				continue
+			}
 			return nil, err
 		}
 		for _, r := range rules {
@@ -277,6 +280,9 @@ func (m *Manager) CleanupStale() error {
 	for _, fam := range []int{unix.AF_INET, unix.AF_INET6} {
 		rules, err := netlink.RuleList(fam)
 		if err != nil {
+			if fam == unix.AF_INET6 && tolerableV6(err) {
+				continue
+			}
 			errs = append(errs, err)
 			continue
 		}
@@ -290,6 +296,9 @@ func (m *Manager) CleanupStale() error {
 		}
 		routes, err := netlink.RouteListFiltered(fam, &netlink.Route{Table: singBoxTable}, netlink.RT_FILTER_TABLE)
 		if err != nil {
+			if fam == unix.AF_INET6 && tolerableV6(err) {
+				continue
+			}
 			errs = append(errs, err)
 			continue
 		}
@@ -319,11 +328,19 @@ func (m *Manager) WatchAddresses(ctx context.Context, onChange func()) (func(), 
 		defer close(done)
 		var timer *time.Timer
 		var fire <-chan time.Time
+		defer func() {
+			if timer != nil {
+				timer.Stop()
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ch:
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
 				if timer == nil {
 					timer = time.NewTimer(500 * time.Millisecond)
 				} else {

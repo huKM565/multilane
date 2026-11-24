@@ -185,8 +185,8 @@ fun AndroidMainScreen(
     val locationQrTitle = stringResource(Res.string.location_qr)
     val serverListQrTitle = stringResource(Res.string.server_list_qr)
 
-    suspend fun showUpdateResult(info: AppUpdateInfo) {
-        if (info.isDownloaded(updateSettings)) {
+    suspend fun showUpdateResult(info: AppUpdateInfo, manual: Boolean) {
+        if (!manual && info.isDownloaded(updateSettings)) {
             updateOffer = null
             updateStatusText = getString(Res.string.update_already_downloaded, info.channel.name.lowercase())
         } else if (info.isUpdateAvailable) {
@@ -215,12 +215,12 @@ fun AndroidMainScreen(
                 vpnManager.subscriptionFetchProxy()
             )
             val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
-            val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
-            saveUpdateSettings(checkedSettings)
             result.fold(
                 onSuccess = { info ->
+                    val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
+                    saveUpdateSettings(checkedSettings)
                     if (manual || info.shouldShowOffer(previousSettings, checkedAt)) {
-                        showUpdateResult(info)
+                        showUpdateResult(info, manual)
                     } else {
                         updateOffer = null
                         updateStatusText = null
@@ -263,7 +263,17 @@ fun AndroidMainScreen(
             updateOffer = null
             updateDownloadProgress = null
             relaunchAfterInstall = true
-            updateInstallLauncher.launch(updateInstaller.installIntent(file))
+            try {
+                updateInstallLauncher.launch(updateInstaller.installIntent(file, forActivityResult = true))
+            } catch (_: android.content.ActivityNotFoundException) {
+                runCatching {
+                    updateInstallLauncher.launch(updateInstaller.viewInstallIntent(file, forActivityResult = true))
+                }.onFailure { error ->
+                    relaunchAfterInstall = false
+                    updateStatusText = error.message ?: getString(Res.string.unknown_error)
+                    Toast.makeText(context, updateStatusText, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 

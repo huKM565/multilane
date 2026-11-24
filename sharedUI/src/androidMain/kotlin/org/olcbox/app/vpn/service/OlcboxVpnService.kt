@@ -189,22 +189,7 @@ class OlcboxVpnService : VpnService() {
      */
     private val tun2socksThread: Thread?
         get() = tun2socksRun.inProgress()
-    @Volatile
-    private var tun2socksStarted = false
-    // Atomic, not volatile: stop is asked for from the main thread, the startup
-    // job and the cleanup job, and hev's stop must be called once per run. A
-    // second call after hev has gone waits for the next hev to start, and then
-    // stops that one.
-    private val tun2socksStopRequested = AtomicBoolean(false)
 
-    /**
-     * Whether this service has a native run of its own still to stop: one it
-     * started and has not told to stop. What a stop has left to take down is
-     * asked here and not of [tun2socksThread]. That is the process's run: it
-     * can be one this service told to stop and gave up waiting for, to which
-     * a second stop has nothing more to say, or one the next service started,
-     * which is not this one's to take down.
-     */
     private val tun2socksToStop: Boolean
         get() = tun2socksStarted && !tun2socksStopRequested.get()
 
@@ -232,6 +217,7 @@ class OlcboxVpnService : VpnService() {
     private val singBoxCore by lazy { AndroidSingBoxController(this) }
     private val xrayCore by lazy { AndroidXrayController(this) }
     private var activeCorePort: Int? = null
+    private var activeVerifyPort: Int? = null
     private var activeCoreLogin: SocksLogin? = null
 
     /**
@@ -429,25 +415,18 @@ class OlcboxVpnService : VpnService() {
             }
         }
 
+        startForeground("Protecting your connection")
         val bySystem = startIntent.action == SERVICE_INTERFACE
         val options = loadStartOptions(startIntent)
-        // Always-on is a VPN by definition: a saved proxy mode never establishes
-        // the tun the system is waiting for.
         applyStartOptions(if (bySystem) options.copy(connectionMode = AndroidConnectionMode.Tun) else options)
         val isRestart = shouldRestartForStartCommand()
-        // Android's claim lasts the session: a restart the app asks for inside
-        // it (another location, an edited app list) is not a first connect again.
         startedBySystem = bySystem || (startedBySystem && isRestart)
         if (isRestart) {
             addLog("Restarting ${activeModeLabel()} for selected location")
         }
-        startForeground(
-            if (connectionMode == AndroidConnectionMode.Proxy) {
-                "Starting proxy..."
-            } else {
-                "Protecting your connection"
-            }
-        )
+        if (connectionMode == AndroidConnectionMode.Proxy) {
+            updateNotification("Starting proxy...")
+        }
         startTunnel(isMigration = false, isRestart = isRestart)
         return START_REDELIVER_INTENT
     }
@@ -461,7 +440,6 @@ class OlcboxVpnService : VpnService() {
     override fun onRevoke() {
         addLog("VPN permission revoked")
         cleanup()
-        stopSelf()
         super.onRevoke()
     }
 
@@ -566,11 +544,6 @@ class OlcboxVpnService : VpnService() {
         networkLossJob?.cancel()
         recoveryJob?.cancel()
         recoveryJob = null
-        if (hadPendingStartup) {
-            addLog("Canceling pending olcRTC start")
-            stopMobile()
-            stopTun2socks()
-        }
         if (!isMigration) {
             resetRecoveryState()
         }
@@ -579,6 +552,13 @@ class OlcboxVpnService : VpnService() {
 
         startupJob = scope.launch {
             try {
+                if (hadPendingStartup) {
+                    addLog("Canceling pending olcRTC start")
+                    withContext(Dispatchers.IO) {
+                        stopMobile()
+                        stopTun2socks()
+                    }
+                }
                 cleanupJob?.takeIf { it.isActive }?.let {
                     addLog("Waiting for previous olcRTC cleanup")
                     val completed = withTimeoutOrNull(PREVIOUS_STOP_WAIT_MS) {
@@ -639,6 +619,7 @@ class OlcboxVpnService : VpnService() {
                         setStatus(VpnStatus.Error("No active location"))
                         updateNotification(missing.notificationText)
                         stopTransportProcesses(closeTun = true, waitForSocksPort = false)
+                        stopSelfAfterTerminalError()
                         return@withLock
                     }
                     OlcboxVpnState.activeLocation = location.normalized()
@@ -718,6 +699,7 @@ class OlcboxVpnService : VpnService() {
             stopTransportProcesses(closeTun = true, waitForSocksPort = false)
             setStatus(VpnStatus.Error(error.message ?: "Connection failed"))
             updateNotification("Connection failed")
+            stopSelfAfterTerminalError()
         }
     }
 
@@ -1054,13 +1036,15 @@ class OlcboxVpnService : VpnService() {
         updateUnderlyingNetwork(upstream)
 
         if (!startTransport(location, upstream, requestedGeneration, setErrorOnFailure = !retries)) {
-            // Not for a start that a stop has ended: the stop has said
-            // Disconnected by now, and this would say Reconnecting after it.
-            if (retries && requestedGeneration == generation) {
-                updateUnderlyingNetwork(null)
-                setStatus(VpnStatus.Reconnecting)
-                updateNotification("Waiting for transport...")
-                scheduleTransportRetry(requestedGeneration, "transport start failed")
+            if (requestedGeneration == generation) {
+                if (retries) {
+                    updateUnderlyingNetwork(null)
+                    setStatus(VpnStatus.Reconnecting)
+                    updateNotification("Waiting for transport...")
+                    scheduleTransportRetry(requestedGeneration, "transport start failed")
+                } else {
+                    stopSelfAfterTerminalError()
+                }
             }
             return
         }
@@ -1101,15 +1085,11 @@ class OlcboxVpnService : VpnService() {
             is Established.Up -> established.pfd
 
             is Established.BadLists -> {
-                // Shown whoever asked for the VPN, and not retried. A retry
-                // would start and stop the transport every half minute over a
-                // list only the user can mend, behind a notification that says
-                // nothing. The error names what to mend, and the Connect that
-                // follows starts it.
                 stopMobileAndWait()
                 if (requestedGeneration == generation) {
                     setStatus(VpnStatus.Error(established.message))
                     updateNotification("Split tunneling error")
+                    stopSelfAfterTerminalError()
                 }
                 return
             }
@@ -1124,6 +1104,7 @@ class OlcboxVpnService : VpnService() {
                     } else {
                         setStatus(VpnStatus.Error(established.message))
                         updateNotification("VPN tunnel error")
+                        stopSelfAfterTerminalError()
                     }
                 }
                 return
@@ -1133,10 +1114,14 @@ class OlcboxVpnService : VpnService() {
         if (!adoptInterface(pfd, spec, requestedGeneration)) return
         if (!startTun2socks(pfd, reportError = !retries)) {
             stopTransportProcesses(closeTun = true)
-            if (retries && requestedGeneration == generation) {
-                setStatus(VpnStatus.Reconnecting)
-                updateNotification("Waiting for transport...")
-                scheduleTransportRetry(requestedGeneration, "tun2socks did not start")
+            if (requestedGeneration == generation) {
+                if (retries) {
+                    setStatus(VpnStatus.Reconnecting)
+                    updateNotification("Waiting for transport...")
+                    scheduleTransportRetry(requestedGeneration, "tun2socks did not start")
+                } else {
+                    stopSelfAfterTerminalError()
+                }
             }
             return
         }
@@ -1178,7 +1163,7 @@ class OlcboxVpnService : VpnService() {
         val (username, password) = upstreamLogin()
         return TunnelVerifier.verify(
             socksHost = AndroidSocksProxySettings.connectHost(socksListenHost),
-            socksPort = activeCorePort ?: socksListenPort,
+            socksPort = activeVerifyPort ?: activeCorePort ?: socksListenPort,
             username = username,
             password = password
         )
@@ -1212,7 +1197,19 @@ class OlcboxVpnService : VpnService() {
             stopTransportProcesses(closeTun = true, waitForSocksPort = false)
             setStatus(VpnStatus.Error("No traffic reached the internet through the tunnel"))
             updateNotification("Connection failed")
+            stopSelfAfterTerminalError()
         }
+    }
+
+    private fun stopSelfAfterTerminalError() {
+        if (isCallbackRegistered) {
+            runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+            isCallbackRegistered = false
+        }
+        unbindProcessFromNetwork()
+        releaseWakeLock()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     /**
@@ -1231,6 +1228,7 @@ class OlcboxVpnService : VpnService() {
         val routing = routingFor(upstream)
         return if (location.kind == LocationKind.Olcrtc) {
             activeCorePort = null
+            activeVerifyPort = null
             activeCoreLogin = null
             if (location.bondVlessLink.isNullOrBlank()) {
                 startMobile(location, upstream, requestedGeneration, setErrorOnFailure, routing)
@@ -1288,6 +1286,12 @@ class OlcboxVpnService : VpnService() {
             // answers proves nothing about who answers.
             val alive: () -> Boolean
             val fronted = routing is Routing.Rules && connectionMode == AndroidConnectionMode.Tun
+            val blockedOnlyVerifyPort = if (routing is Routing.RuleBased && routing.policy == Routing.Policy.BlockedOnly) {
+                freeLoopbackPort()
+            } else {
+                null
+            }
+            var verifyPort: Int? = null
             if (bondCorePlan != null) {
                 val bondSpec = spec as? OutboundSpec.Vless ?: error("bond carrier is not VLESS")
                 val xrayPort = freeLoopbackPort()
@@ -1303,6 +1307,11 @@ class OlcboxVpnService : VpnService() {
                         adaptive = bondCorePlan.scheduling,
                     )
                 )
+                if (!waitForSocksPortOpen(xrayPort, MOBILE_READY_TIMEOUT_MS) || !xrayCore.isRunning()) {
+                    addLog(xrayCore.diagnostics())
+                    error("Xray/olcRTC bond SOCKS not ready on $xrayPort")
+                }
+                verifyPort = blockedOnlyVerifyPort
                 singBoxCore.start(
                     SingBoxConfig.buildSocksChain(
                         xrayPort,
@@ -1312,6 +1321,7 @@ class OlcboxVpnService : VpnService() {
                         routing = routing,
                         verboseLogs = verboseDebugLogs,
                         login = login,
+                        verifyPort = verifyPort,
                     )
                 )
                 label = "sing-box front + Xray/olcRTC bond"
@@ -1321,10 +1331,6 @@ class OlcboxVpnService : VpnService() {
                 }
             } else if (spec is OutboundSpec.Vless && spec.transport is TransportSpec.Xhttp) {
                 if (fronted) {
-                    // Xray does not route; sing-box does, so it goes in front.
-                    // Both ports are loopback and both demand the login: the one
-                    // behind the front is as reachable from other apps as the
-                    // front itself.
                     val xrayPort = freeLoopbackPort()
                     xrayCore.start(
                         XrayConfig.buildXhttp(
@@ -1334,6 +1340,11 @@ class OlcboxVpnService : VpnService() {
                             login = login
                         )
                     )
+                    if (!waitForSocksPortOpen(xrayPort, MOBILE_READY_TIMEOUT_MS) || !xrayCore.isRunning()) {
+                        addLog(xrayCore.diagnostics())
+                        error("Xray/xhttp SOCKS not ready on $xrayPort")
+                    }
+                    verifyPort = blockedOnlyVerifyPort
                     singBoxCore.start(
                         SingBoxConfig.buildSocksChain(
                             xrayPort,
@@ -1342,7 +1353,8 @@ class OlcboxVpnService : VpnService() {
                             password = login?.password.orEmpty(),
                             routing = routing,
                             verboseLogs = verboseDebugLogs,
-                            login = login
+                            login = login,
+                            verifyPort = verifyPort,
                         )
                     )
                     label = "sing-box front + Xray/xhttp"
@@ -1358,6 +1370,7 @@ class OlcboxVpnService : VpnService() {
                     alive = xrayCore::isRunning
                 }
             } else {
+                verifyPort = blockedOnlyVerifyPort
                 singBoxCore.start(
                     SingBoxConfig.build(
                         spec,
@@ -1365,9 +1378,8 @@ class OlcboxVpnService : VpnService() {
                         routing = routing,
                         verboseLogs = verboseDebugLogs,
                         login = login,
-                        // A server named by hostname: the core has no system
-                        // resolver to ask on Android, so it is given the network's.
-                        serverResolver = DirectDns.Servers(upstreamDnsAddresses(upstream))
+                        serverResolver = DirectDns.Servers(upstreamDnsAddresses(upstream)),
+                        verifyPort = verifyPort,
                     )
                 )
                 label = "sing-box/${location.kind}"
@@ -1375,6 +1387,7 @@ class OlcboxVpnService : VpnService() {
                 alive = singBoxCore::isRunning
             }
             activeCorePort = port
+            activeVerifyPort = verifyPort
             activeCoreLogin = login
             if (!waitForSocksPortOpen(port, MOBILE_READY_TIMEOUT_MS) || !alive()) {
                 // The core's own account of what went wrong, which otherwise sits
@@ -1412,6 +1425,7 @@ class OlcboxVpnService : VpnService() {
         singBoxCore.stopNow()
         xrayCore.stopNow()
         activeCorePort = null
+        activeVerifyPort = null
         activeCoreLogin = null
     }
 
@@ -1523,14 +1537,19 @@ class OlcboxVpnService : VpnService() {
                 runtime.setSocksCredentials(socksUsername, socksPassword)
             }
             addLog("Starting olcRTC bond x${paths.size}")
-            val activeRooms = bond.start(OLCRTC_READY_TIMEOUT_MS.toInt())
+            val activeRooms = withContext(Dispatchers.IO) {
+                bond.start(OLCRTC_READY_TIMEOUT_MS.toInt())
+            }
+            if (requestedGeneration != generation || bond !== olcRtcBond) {
+                addLog("olcRTC bond start superseded")
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { bond.stop(MOBILE_STOP_TIMEOUT_MS.toInt()) }
+                }
+                return false
+            }
             bondBalancedRooms = activeRooms
             OlcboxVpnState.setBondRooms(activeRooms)
             bond.requestOccupancy()
-            if (requestedGeneration != generation) {
-                addLog("olcRTC bond start superseded")
-                return false
-            }
             coroutineContext.ensureActive()
             val activePlan = planFullPoolAdaptiveBondCore(
                 activeRooms,
@@ -1788,7 +1807,7 @@ class OlcboxVpnService : VpnService() {
     private fun establishSystemVpnTunnel(spec: TunSpec): Established {
         return try {
             val builder = Builder()
-                .setSession("Olcbox VPN")
+                .setSession("MultiLane")
                 .setMtu(TUN_MTU)
                 .addAddress(TUN_IPV4_ADDRESS, IPV4_PREFIX_LENGTH)
                 .addRoute("0.0.0.0", 0)
@@ -2017,25 +2036,29 @@ class OlcboxVpnService : VpnService() {
 
     private suspend fun refreshMobileBond() {
         val requestGeneration = generation
+        val bond = olcRtcBond ?: return
+        val location = bondLocation ?: return
+        fun current(): Boolean =
+            requestGeneration == generation &&
+                bond === olcRtcBond &&
+                OlcboxVpnState.status.value is VpnStatus.Connected
+        if (!current()) return
+
+        var activeRooms = bond.activeIndexes()
+        OlcboxVpnState.setBondRooms(activeRooms)
+        bond.requestOccupancy()
+        if (activeRooms.isEmpty()) return
+
+        activeRooms = withContext(Dispatchers.IO) {
+            bond.recover(OLCRTC_READY_TIMEOUT_MS.toInt()) { !current() }
+        }
+        if (!current()) return
+        OlcboxVpnState.setBondRooms(activeRooms)
+        bond.requestOccupancy()
+        if (activeRooms.isEmpty()) return
+
         tunnelMutex.withLock {
-            val bond = olcRtcBond ?: return@withLock
-            val location = bondLocation ?: return@withLock
-            fun current(): Boolean =
-                requestGeneration == generation &&
-                    bond === olcRtcBond &&
-                    OlcboxVpnState.status.value is VpnStatus.Connected
             if (!current()) return@withLock
-
-            var activeRooms = bond.activeIndexes()
-            OlcboxVpnState.setBondRooms(activeRooms)
-            bond.requestOccupancy()
-            if (activeRooms.isEmpty()) return@withLock
-
-            activeRooms = bond.recover(OLCRTC_READY_TIMEOUT_MS.toInt()) { !current() }
-            if (!current()) return@withLock
-            OlcboxVpnState.setBondRooms(activeRooms)
-            bond.requestOccupancy()
-            if (activeRooms.isEmpty()) return@withLock
             bondBalancedRooms = activeRooms
             val fullPoolRunning = bondBalancedPlan?.roomPorts == bondRoomPorts &&
                 singBoxCore.isRunning() &&
@@ -2150,7 +2173,7 @@ class OlcboxVpnService : VpnService() {
         if (cleanupJob?.isActive == true) return
 
         val status = OlcboxVpnState.status.value
-        if (status is VpnStatus.Disconnected &&
+        if ((status is VpnStatus.Disconnected || status is VpnStatus.Error) &&
             vpnInterface == null &&
             !tun2socksToStop &&
             socksProxy == null &&
@@ -2189,6 +2212,7 @@ class OlcboxVpnService : VpnService() {
                     addLog("${activeModeLabel()} stopped")
                 }
 
+                stopMobile()
                 withTimeoutOrNull(CANCELLED_BOND_RECOVERY_WAIT_MS) { cancelledWatchdog?.join() }
                 stopMobileAndWait()
                 // The start this stop cancelled runs on until its next
@@ -3083,6 +3107,9 @@ class OlcboxVpnService : VpnService() {
          * beside it.
          */
         private val tun2socksRun = NativeTunnelRun()
+        @Volatile
+        private var tun2socksStarted = false
+        private val tun2socksStopRequested = AtomicBoolean(false)
 
         @Volatile
         private var nativeLibrariesLoaded = false

@@ -59,9 +59,12 @@ class QuickSettingsTileService : TileService() {
     override fun onClick() {
         super.onClick()
 
-        val isConnected = OlcboxVpnState.isConnected.value
+        val status = OlcboxVpnState.status.value
+        val isActive = status is VpnStatus.Connected ||
+            status is VpnStatus.Connecting ||
+            status is VpnStatus.Reconnecting
 
-        if (isConnected) {
+        if (isActive) {
             stopVpn()
         } else {
             // VpnService.prepare() returns null when permission is already held.

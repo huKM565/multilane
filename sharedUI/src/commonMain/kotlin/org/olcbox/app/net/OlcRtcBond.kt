@@ -1,5 +1,7 @@
 package org.olcbox.app.net
 
+import kotlin.concurrent.Volatile
+
 interface OlcRtcBondRuntime {
     fun start()
     fun waitReady(timeoutMillis: Int)
@@ -11,31 +13,49 @@ interface OlcRtcBondRuntime {
 }
 
 class OlcRtcBond(private val runtimes: List<OlcRtcBondRuntime>) {
-    private val readyIndexes = mutableSetOf<Int>()
+    @Volatile
+    private var readyIndexes: Set<Int> = emptySet()
+
+    @Volatile
+    private var stopped = false
 
     init {
         require(runtimes.size == 4 || runtimes.size == 8 || runtimes.size == 12) { "an olcRTC bond requires four, eight or twelve runtimes" }
     }
 
     fun start(timeoutMillis: Int): List<Int> {
-        readyIndexes.clear()
+        stopped = false
+        readyIndexes = emptySet()
         var lastError: Throwable? = null
         runtimes.forEachIndexed { index, runtime ->
+            if (stopped) {
+                runCatching { stop(timeoutMillis) }
+                return emptyList()
+            }
             runCatching { runtime.start() }.onFailure { error ->
                 lastError = error
-                readyIndexes.remove(index)
+                readyIndexes = readyIndexes - index
                 runCatching { runtime.stop(timeoutMillis) }
             }
         }
         runtimes.forEachIndexed { index, runtime ->
+            if (stopped) {
+                runCatching { stop(timeoutMillis) }
+                return emptyList()
+            }
             if (!runtime.isRunning()) return@forEachIndexed
             try {
                 runtime.waitReady(timeoutMillis)
-                readyIndexes += index
+                if (stopped) {
+                    runCatching { runtime.stop(timeoutMillis) }
+                    readyIndexes = readyIndexes - index
+                    return emptyList()
+                }
+                readyIndexes = readyIndexes + index
                 return activeIndexes()
             } catch (error: Throwable) {
                 lastError = error
-                readyIndexes.remove(index)
+                readyIndexes = readyIndexes - index
                 runCatching { runtime.stop(timeoutMillis) }
             }
         }
@@ -48,27 +68,33 @@ class OlcRtcBond(private val runtimes: List<OlcRtcBondRuntime>) {
 
     fun recover(timeoutMillis: Int, isCancelled: () -> Boolean = { false }): List<Int> {
         runtimes.forEachIndexed { index, runtime ->
+            if (stopped || isCancelled()) return activeIndexes()
             if (index in readyIndexes && runtime.isRunning()) return@forEachIndexed
-            readyIndexes.remove(index)
-            if (isCancelled()) return activeIndexes()
+            readyIndexes = readyIndexes - index
+            if (stopped || isCancelled()) return activeIndexes()
             if (!runtime.isRunning()) {
                 runCatching { runtime.stop(timeoutMillis) }
+                if (stopped || isCancelled()) return activeIndexes()
                 runCatching { runtime.start() }
-                if (isCancelled()) {
+                if (stopped || isCancelled()) {
                     runCatching { runtime.stop(timeoutMillis) }
                     return activeIndexes()
                 }
             }
             runCatching {
                 runtime.waitReady(timeoutMillis)
-                if (isCancelled()) {
+            }.onSuccess {
+                if (stopped || isCancelled()) {
                     runCatching { runtime.stop(timeoutMillis) }
-                    readyIndexes.remove(index)
+                    readyIndexes = readyIndexes - index
                 } else {
-                    readyIndexes += index
+                    readyIndexes = readyIndexes + index
                 }
+            }.onFailure {
+                readyIndexes = readyIndexes - index
+                runCatching { runtime.stop(timeoutMillis) }
             }
-            if (isCancelled()) return activeIndexes()
+            if (stopped || isCancelled()) return activeIndexes()
         }
         return activeIndexes()
     }
@@ -83,6 +109,8 @@ class OlcRtcBond(private val runtimes: List<OlcRtcBondRuntime>) {
     }
 
     fun stop(timeoutMillis: Int) {
+        stopped = true
+        readyIndexes = emptySet()
         var firstError: Throwable? = null
         runtimes.forEach { runtime ->
             try {
@@ -91,7 +119,7 @@ class OlcRtcBond(private val runtimes: List<OlcRtcBondRuntime>) {
                 if (firstError == null) firstError = error
             }
         }
-        readyIndexes.clear()
+        readyIndexes = emptySet()
         firstError?.let { throw it }
     }
 

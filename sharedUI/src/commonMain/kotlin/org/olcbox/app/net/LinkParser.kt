@@ -36,10 +36,10 @@ object LinkParser {
     private fun splitLink(s: String, scheme: String): Parts? {
         val body = s.removePrefix(scheme)
         val hashIdx = body.indexOf('#')
-        val tag = if (hashIdx >= 0) urlDecode(body.substring(hashIdx + 1)) else ""
+        val tag = if (hashIdx >= 0) urlDecode(body.substring(hashIdx + 1), plusAsSpace = false) else ""
         val beforeHash = if (hashIdx >= 0) body.substring(0, hashIdx) else body
         val qIdx = beforeHash.indexOf('?')
-        val authority = if (qIdx >= 0) beforeHash.substring(0, qIdx) else beforeHash
+        val authority = (if (qIdx >= 0) beforeHash.substring(0, qIdx) else beforeHash).trimEnd('/')
         val query = if (qIdx >= 0) parseQuery(beforeHash.substring(qIdx + 1)) else emptyMap()
         val atIdx = authority.lastIndexOf('@')
         if (atIdx < 0) return null
@@ -47,7 +47,7 @@ object LinkParser {
         val hostPort = authority.substring(atIdx + 1)
         val colon = hostPort.lastIndexOf(':')
         if (colon <= 0) return null
-        val host = hostPort.substring(0, colon)
+        val host = hostPort.substring(0, colon).removePrefix("[").removeSuffix("]")
         val port = hostPort.substring(colon + 1).toIntOrNull() ?: return null
         if (host.isBlank()) return null
         return Parts(userinfo, host, port, query, tag)
@@ -97,7 +97,7 @@ object LinkParser {
     private fun parseHy2(s: String, scheme: String): OutboundSpec.Hysteria2? {
         val p = splitLink(s, scheme) ?: return null
         return OutboundSpec.Hysteria2(
-            password = p.userinfo,
+            password = urlDecode(p.userinfo, plusAsSpace = false),
             host = p.host,
             port = p.port,
             sni = p.query["sni"].orEmpty(),
@@ -125,7 +125,7 @@ object LinkParser {
         if (p.query["security"]?.lowercase() == "reality") return null
         val transport = streamTransport(p.query["type"]?.trim()?.lowercase().orEmpty().ifEmpty { "tcp" }, p.query) ?: return null
         return OutboundSpec.Trojan(
-            password = urlDecode(p.userinfo),
+            password = urlDecode(p.userinfo, plusAsSpace = false),
             host = p.host,
             port = p.port,
             tls = tlsOf(p.query, fallbackSni = p.host),
@@ -143,7 +143,7 @@ object LinkParser {
     private fun parseShadowsocks(s: String): OutboundSpec.Shadowsocks? {
         val body = s.removePrefix("ss://")
         val hashIdx = body.indexOf('#')
-        val tag = if (hashIdx >= 0) urlDecode(body.substring(hashIdx + 1)) else ""
+        val tag = if (hashIdx >= 0) urlDecode(body.substring(hashIdx + 1), plusAsSpace = false) else ""
         var main = if (hashIdx >= 0) body.substring(0, hashIdx) else body
         val qIdx = main.indexOf('?')
         if (qIdx >= 0) {
@@ -153,7 +153,7 @@ object LinkParser {
         main = main.trimEnd('/')
         val (credentials, hostPort) = if ('@' in main) {
             val at = main.lastIndexOf('@')
-            val userinfo = urlDecode(main.substring(0, at))
+            val userinfo = urlDecode(main.substring(0, at), plusAsSpace = false)
             (if (':' in userinfo) userinfo else decodeBase64(userinfo) ?: return null) to main.substring(at + 1)
         } else {
             val decoded = decodeBase64(main) ?: return null
@@ -270,7 +270,7 @@ object LinkParser {
      * yields replacement characters rather than throwing, because a mangled name
      * must not cost the user the whole subscription.
      */
-    private fun urlDecode(s: String): String {
+    private fun urlDecode(s: String, plusAsSpace: Boolean = true): String {
         val out = StringBuilder()
         val pending = mutableListOf<Byte>()
 
@@ -292,7 +292,7 @@ object LinkParser {
                         flushPending(); out.append(c); i++
                     }
                 }
-                c == '+' -> { flushPending(); out.append(' '); i++ }
+                c == '+' && plusAsSpace -> { flushPending(); out.append(' '); i++ }
                 else -> { flushPending(); out.append(c); i++ }
             }
         }

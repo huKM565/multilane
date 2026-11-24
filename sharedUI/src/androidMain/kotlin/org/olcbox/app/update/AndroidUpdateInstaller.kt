@@ -71,8 +71,16 @@ class AndroidUpdateInstaller(
         }
     }
 
-    fun installIntent(file: File): Intent {
-        return installIntent(uriFor(file), file.name)
+    fun installIntent(file: File, forActivityResult: Boolean = false): Intent {
+        return installIntent(uriFor(file), file.name, forActivityResult)
+    }
+
+    fun viewInstallIntent(file: File, forActivityResult: Boolean = false): Intent {
+        return Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uriFor(file), mimeType(file.name))
+            if (!forActivityResult) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
     }
 
     fun relaunchIntent(): Intent? {
@@ -82,13 +90,13 @@ class AndroidUpdateInstaller(
             ?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
     }
 
-    private fun installIntent(uri: Uri, name: String): Intent {
+    private fun installIntent(uri: Uri, name: String, forActivityResult: Boolean): Intent {
         return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             data = uri
             putExtra(Intent.EXTRA_RETURN_RESULT, true)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             setDataAndType(uri, mimeType(name))
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (!forActivityResult) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
@@ -118,6 +126,7 @@ class AndroidUpdateInstaller(
         }
         val fileName = asset.name.substringAfterLast('/').ifBlank { "olcbox-update.apk" }
         val target = File(directory, fileName)
+        val staging = File(directory, "$fileName.tmp")
         val connection = if (proxy == null) {
             URL(asset.downloadUrl).openConnection()
         } else {
@@ -127,24 +136,36 @@ class AndroidUpdateInstaller(
         } as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 60_000
-        val total = connection.contentLengthLong.takeIf { it > 0L } ?: asset.sizeBytes ?: -1L
-        connection.inputStream.use { input ->
-            target.outputStream().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var copied = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    copied += read
-                    if (total > 0L) {
-                        reportProgress(
-                            (copied.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f),
-                            onProgress
-                        )
+        try {
+            val total = connection.contentLengthLong.takeIf { it > 0L } ?: asset.sizeBytes ?: -1L
+            connection.inputStream.use { input ->
+                staging.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var copied = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        copied += read
+                        if (total > 0L) {
+                            reportProgress(
+                                (copied.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f),
+                                onProgress
+                            )
+                        }
                     }
                 }
             }
+            if (target.exists()) target.delete()
+            if (!staging.renameTo(target)) {
+                staging.copyTo(target, overwrite = true)
+                staging.delete()
+            }
+        } catch (e: Throwable) {
+            runCatching { staging.delete() }
+            throw e
+        } finally {
+            connection.disconnect()
         }
         reportProgress(1f, onProgress)
         target

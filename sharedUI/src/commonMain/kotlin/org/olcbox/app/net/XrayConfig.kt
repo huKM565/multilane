@@ -77,7 +77,7 @@ object XrayConfig {
             "a VLESS room bond requires a plain TCP VLESS endpoint"
         }
         if (adaptive != null) {
-            require(adaptive.expected == minOf(4, roomPorts.size)) { "unexpected adaptive room count" }
+            require(adaptive.expected == roomPorts.size) { "unexpected adaptive room count" }
             require(adaptive.costs.size == roomPorts.size) { "adaptive costs must match room ports" }
             require(adaptive.costs.all { it.isFinite() && it > 0.0 }) { "adaptive costs must be finite and positive" }
             require(adaptive.fallbackIndex in roomPorts.indices) { "adaptive fallback index is outside the port list" }

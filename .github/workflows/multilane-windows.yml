@@ -99,6 +99,9 @@ jobs:
       - name: Test and package Windows
         shell: pwsh
         working-directory: multilane
+        env:
+          OLCBOX_CRYPT_KEY_V1: ${{ secrets.OLCBOX_CRYPT_KEY_V1 }}
+          OLCBOX_ADMIN_PASS_SHA256: ${{ secrets.OLCBOX_ADMIN_PASS_SHA256 }}
         run: |
           $ErrorActionPreference = "Stop"
           $version = "${{ inputs.version || '1.0.474' }}"
@@ -132,6 +135,7 @@ jobs:
         working-directory: multilane
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           $ErrorActionPreference = "Stop"
           $version = "${{ inputs.version || '1.0.474' }}"
@@ -139,5 +143,7 @@ jobs:
           gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "MultiLane $tag" --notes "MultiLane $tag"
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
           }
           gh release upload $tag dist/MultiLane-$version-windows-amd64.exe dist/MultiLane-$version-windows-amd64.msi dist/MultiLane-$version-windows-amd64-portable.zip --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }

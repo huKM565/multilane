@@ -77,9 +77,10 @@ func runDaemon(args []string, stderr io.Writer) int {
 		if !found {
 			cfg.Subscriptions = append(cfg.Subscriptions, store.Subscription{URL: *subscription, AddedAt: time.Now(), IntervalHours: 24})
 		}
-		if *selector != "" {
-			cfg.Selection = &store.Selection{Subscription: *subscription, Selector: *selector, Mode: *mode, KillSwitch: *killSwitch}
-		}
+		changed = true
+	}
+	if *selector != "" {
+		cfg.Selection = &store.Selection{Subscription: *subscription, Selector: *selector, Mode: *mode, KillSwitch: *killSwitch}
 		changed = true
 	}
 	if changed {

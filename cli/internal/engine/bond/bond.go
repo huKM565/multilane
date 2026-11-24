@@ -40,6 +40,7 @@ type Session struct {
 	rooms            []links.BondRoom
 	ports            []int
 	sessions         []*olcrtc.Session
+	starting         []bool
 	roomUser         string
 	roomPass         string
 	dns              string
@@ -107,8 +108,11 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 
 	results := make(chan roomResult, len(rooms))
 	startCtx, cancelStart := context.WithCancel(ctx)
+	var startWG sync.WaitGroup
 	for i, room := range rooms {
+		startWG.Add(1)
 		go func(idx int, r links.BondRoom, port int) {
+			defer startWG.Done()
 			if stagger > 0 && idx > 0 {
 				delay := time.Duration(idx) * stagger
 				if delay > 3*time.Second {
@@ -155,16 +159,33 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 	}
 
 	sessions := make([]*olcrtc.Session, len(rooms))
+	starting := make([]bool, len(rooms))
+	for i := range starting {
+		starting[i] = true
+	}
 	completed := 0
 	firstReady := -1
 	var lastErr error
 	var graceTimer *time.Timer
 	var graceC <-chan time.Time
 
+	drainAndStop := func(rem int) {
+		cancelStart()
+		startWG.Wait()
+		for i := 0; i < rem; i++ {
+			res := <-results
+			if res.err == nil && res.session != nil {
+				sessions[res.idx] = res.session
+			}
+		}
+		stopRoomSessions(sessions, 5*time.Second)
+	}
+
 	for completed < len(rooms) {
 		select {
 		case res := <-results:
 			completed++
+			starting[res.idx] = false
 			if res.err != nil {
 				lastErr = res.err
 				logf("bond room %d/%d failed: %v", res.idx+1, len(rooms), res.err)
@@ -181,11 +202,10 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		case <-graceC:
 			goto launchXray
 		case <-ctx.Done():
-			cancelStart()
 			if graceTimer != nil {
 				graceTimer.Stop()
 			}
-			stopRoomSessions(sessions, 5*time.Second)
+			drainAndStop(len(rooms) - completed)
 			return nil, ctx.Err()
 		}
 	}
@@ -195,7 +215,7 @@ launchXray:
 		graceTimer.Stop()
 	}
 	if firstReady < 0 {
-		cancelStart()
+		drainAndStop(len(rooms) - completed)
 		if lastErr == nil {
 			lastErr = errors.New("no bonded rooms became ready")
 		}
@@ -214,8 +234,7 @@ launchXray:
 		FallbackIndex: firstReady,
 	})
 	if err != nil {
-		cancelStart()
-		stopRoomSessions(sessions, 5*time.Second)
+		drainAndStop(len(rooms) - completed)
 		return nil, fmt.Errorf("olcrtc bond xray: %w", err)
 	}
 
@@ -224,6 +243,7 @@ launchXray:
 		rooms:            append([]links.BondRoom(nil), rooms...),
 		ports:            ports,
 		sessions:         sessions,
+		starting:         starting,
 		roomUser:         roomUser,
 		roomPass:         roomPass,
 		dns:              p.DNS,
@@ -242,26 +262,36 @@ launchXray:
 	remaining := len(rooms) - completed
 	go func() {
 		defer close(bs.recoverDone)
-		for i := 0; i < remaining; i++ {
-			select {
-			case res := <-results:
-				if res.err != nil {
-					logf("bond room %d/%d failed: %v", res.idx+1, len(rooms), res.err)
-					continue
-				}
-				bs.mu.Lock()
-				if bs.stopped {
+		var bgWG sync.WaitGroup
+		if remaining > 0 {
+			bgWG.Add(1)
+			go func() {
+				defer bgWG.Done()
+				for i := 0; i < remaining; i++ {
+					res := <-results
+					if res.err != nil {
+						bs.mu.Lock()
+						bs.starting[res.idx] = false
+						bs.mu.Unlock()
+						if bgCtx.Err() == nil {
+							logf("bond room %d/%d failed: %v", res.idx+1, len(rooms), res.err)
+						}
+						continue
+					}
+					bs.mu.Lock()
+					bs.starting[res.idx] = false
+					if bs.stopped {
+						bs.mu.Unlock()
+						_ = res.session.Stop(3 * time.Second)
+						continue
+					}
+					bs.sessions[res.idx] = res.session
 					bs.mu.Unlock()
-					_ = res.session.Stop(3 * time.Second)
-					continue
 				}
-				bs.sessions[res.idx] = res.session
-				bs.mu.Unlock()
-			case <-bgCtx.Done():
-				return
-			}
+			}()
 		}
 		bs.recoveryLoop(bgCtx)
+		bgWG.Wait()
 	}()
 
 	return bs, nil
@@ -290,10 +320,11 @@ func (b *Session) recoverDeadRooms(ctx context.Context) {
 			b.mu.Unlock()
 			return
 		}
+		inFlight := b.starting[i]
 		s := b.sessions[i]
 		alive := s != nil && s.State() == "running"
 		b.mu.Unlock()
-		if alive {
+		if inFlight || alive {
 			continue
 		}
 		if s != nil {

@@ -140,7 +140,7 @@ class XrayConfigBondTest {
         val ports = (21081..21092).toList()
         val costs = listOf(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 1.0, 1.25, 0.75, 2.25, 3.5)
         val root = Json.parseToJsonElement(
-            XrayConfig.buildVlessBond(spec, ports, "u", "p", adaptive = BondScheduling(4, costs))
+            XrayConfig.buildVlessBond(spec, ports, "u", "p", adaptive = BondScheduling(12, costs))
         ).jsonObject
         val baseline = Json.parseToJsonElement(
             XrayConfig.buildVlessBond(spec, ports, "u", "p")
@@ -171,7 +171,7 @@ class XrayConfigBondTest {
         assertEquals("bond", balancer["tag"]!!.jsonPrimitive.content)
         assertEquals("leastLoad", balancer["strategy"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         val settings = balancer["strategy"]!!.jsonObject["settings"]!!.jsonObject
-        assertEquals(4, settings["expected"]!!.jsonPrimitive.content.toInt())
+        assertEquals(12, settings["expected"]!!.jsonPrimitive.content.toInt())
         assertEquals("2s", settings["maxRTT"]!!.jsonPrimitive.content)
         assertEquals(0.20, settings["tolerance"]!!.jsonPrimitive.content.toDouble())
         assertEquals(listOf("500ms"), settings["baselines"]!!.jsonArray.map { it.jsonPrimitive.content })

@@ -104,9 +104,13 @@ class DesktopBondIntegrationTest {
         assertFalse("rooms.size == 4" in manager)
         assertTrue("expectedSize = bond?.rooms?.size ?: 0" in manager)
         assertTrue("val frontPort = line.frontPort ?: line.corePort" in manager)
+        val refreshBody = section("private suspend fun refreshDesktopBond", "private suspend fun recoverDesktopBondRooms")
+        val recoverPos = refreshBody.indexOf("recoverDesktopBondRooms(bond)")
+        val emptyGuardPos = refreshBody.indexOf("if (activeRooms.isEmpty()) return false")
+        val rebalancePos = refreshBody.indexOf("rebalanceDesktopBond(")
         assertTrue(
-            Regex("if \\(activeRooms\\.isEmpty\\(\\)\\) return false").findAll(manager).count() >= 2,
-            "both pre-recovery and post-recovery empty active sets must avoid an empty Xray config"
+            recoverPos in 0 until emptyGuardPos && emptyGuardPos < rebalancePos,
+            "post-recovery empty active set must avoid an empty Xray config"
         )
     }
 

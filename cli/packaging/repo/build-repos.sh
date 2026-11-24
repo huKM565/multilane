@@ -45,7 +45,7 @@ Components: main
 Description: Ghostlane CLI for Linux
 SignWith: $fpr
 DIST
-  for deb in "$DIST"/ghostlane-cli-"$VERSION"-linux-*.deb; do
+  for deb in "$DIST"/multilane-cli-"$VERSION"-linux-*.deb; do
     [ -f "$deb" ] || { echo "no deb for $VERSION in $DIST" >&2; exit 1; }
     reprepro -b "$REPO/apt" --ignore=undefinedtarget includedeb stable "$deb"
   done
@@ -69,7 +69,7 @@ MACROS
   # signature is verified here before it is published
   gpg --batch --armor --export "$fpr" > "$GNUPGHOME/pub.asc"
   rpm --dbpath "$GNUPGHOME/rpmdb" --import "$GNUPGHOME/pub.asc"
-  for rpm in "$DIST"/ghostlane-cli-"$VERSION"-linux-*.rpm; do
+  for rpm in "$DIST"/multilane-cli-"$VERSION"-linux-*.rpm; do
     [ -f "$rpm" ] || { echo "no rpm for $VERSION in $DIST" >&2; exit 1; }
     cp -f "$rpm" "$REPO/rpm/"
     rpmsign --addsign "$REPO/rpm/$(basename "$rpm")" >/dev/null 2>&1
@@ -84,7 +84,7 @@ MACROS
 
 # prune_rpms keeps the newest RPM_VERSIONS_KEPT versions (by version sort).
 prune_rpms() {
-  ls "$REPO/rpm"/ghostlane-cli-*-linux-*.rpm 2>/dev/null | sed 's#.*/ghostlane-cli-##; s#-linux-.*##' | sort -uV > "$GNUPGHOME/versions"
+  ls "$REPO/rpm"/multilane-cli-*-linux-*.rpm 2>/dev/null | sed 's#.*/multilane-cli-##; s#-linux-.*##' | sort -uV > "$GNUPGHOME/versions"
   keep=$(tail -n "$RPM_VERSIONS_KEPT" "$GNUPGHOME/versions")
   while read -r v; do
     [ -n "$v" ] || continue
@@ -92,7 +92,7 @@ prune_rpms() {
 $keep
 " in *"
 $v
-"*) ;; *) rm -f "$REPO/rpm"/ghostlane-cli-"$v"-linux-*.rpm; echo "pruned $v" ;; esac
+"*) ;; *) rm -f "$REPO/rpm"/multilane-cli-"$v"-linux-*.rpm; echo "pruned $v" ;; esac
   done < "$GNUPGHOME/versions"
 }
 

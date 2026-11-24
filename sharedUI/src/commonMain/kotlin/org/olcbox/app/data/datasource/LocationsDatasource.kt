@@ -1319,9 +1319,9 @@ class LocationsRepositoryImpl(
     private fun parseSingBoxText(
         text: String,
         subscriptionUrl: String? = null,
-        @Suppress("UNUSED_PARAMETER") updateIntervalHours: Int? = null
+        @Suppress("UNUSED_PARAMETER") updateIntervalHours: Int? = null,
+        usedStorageIds: MutableSet<String> = mutableSetOf()
     ): LocationBundleV4? {
-        val usedStorageIds = mutableSetOf<String>()
         val entries = text.lineSequence()
             .map { it.normalizedImportText() }
             .filter { line -> LinkParser.supports(line) }
@@ -1354,7 +1354,8 @@ class LocationsRepositoryImpl(
         // single import yields all locations (olcrtc entries first).
         run {
             val olc = parseOlcRtcText(text, subscriptionUrl, updateIntervalHours)
-            val sb = parseSingBoxText(text, subscriptionUrl, updateIntervalHours)
+            val used = olc?.locations?.map { it.storageId }?.toMutableSet() ?: mutableSetOf()
+            val sb = parseSingBoxText(text, subscriptionUrl, updateIntervalHours, used)
             val merged = when {
                 olc != null && sb != null ->
                     olc.copy(locations = olc.locations + sb.locations)
@@ -1365,12 +1366,10 @@ class LocationsRepositoryImpl(
             if (merged != null) return ParsedImport(merged, ImportMode.Additive)
         }
 
-        // Standard subscription format (Happ / v2rayNG): the whole body is base64
-        // of the scheme-line list. Only reached when direct parsing found nothing,
-        // and the codec only accepts decodes that contain scheme links.
         SubscriptionBodyCodec.decodeBase64(text)?.let { decoded ->
             val olc = parseOlcRtcText(decoded, subscriptionUrl, updateIntervalHours)
-            val sb = parseSingBoxText(decoded, subscriptionUrl, updateIntervalHours)
+            val used = olc?.locations?.map { it.storageId }?.toMutableSet() ?: mutableSetOf()
+            val sb = parseSingBoxText(decoded, subscriptionUrl, updateIntervalHours, used)
             val merged = when {
                 olc != null && sb != null ->
                     olc.copy(locations = olc.locations + sb.locations)
@@ -1652,6 +1651,11 @@ class LocationsRepositoryImpl(
                         }
                     }
 
+                    LinkParser.supports(line) -> {
+                        localFields = null
+                        localBondRooms = null
+                    }
+
                     line.startsWith("##") && locations.isNotEmpty() -> {
                         val (key, value) = parseSubscriptionField(
                             line.removePrefix("##")
@@ -1906,11 +1910,19 @@ class LocationsRepositoryImpl(
 
     private fun subscriptionSignature(location: LocationConfig): String {
         val normalized = location.normalized()
+        if (normalized.kind != LocationKind.Olcrtc) {
+            return listOf(
+                normalized.kind.name,
+                normalized.id,
+                normalized.rawLink.orEmpty()
+            ).joinToString("|")
+        }
         return listOf(
             normalized.bypassProvider,
             normalized.transport,
             normalized.id,
-            normalized.key
+            normalized.key,
+            normalized.bondVlessLink.orEmpty()
         ).joinToString("|")
     }
 

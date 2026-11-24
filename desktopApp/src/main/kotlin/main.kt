@@ -159,6 +159,7 @@ private class DesktopAppDependencies {
 }
 
 private const val WINDOWS_ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-elevation"
+private const val APP_DATA_DIR_ARGUMENT_PREFIX = "--olcbox-app-data-dir="
 
 /**
  * The one-tap import link, `ghostlane://add?url=…` or `proofkit://…`, until the screen takes it.
@@ -175,7 +176,10 @@ private fun watchForImportLinks(args: Array<String>) {
 }
 
 fun main(args: Array<String>) {
-    // AWT reads these once, as it starts, and application {} is what starts it.
+    args.firstOrNull { it.startsWith(APP_DATA_DIR_ARGUMENT_PREFIX) }
+        ?.removePrefix(APP_DATA_DIR_ARGUMENT_PREFIX)
+        ?.takeIf { it.isNotBlank() }
+        ?.let { System.setProperty("olcbox.appDataDir", it) }
     DesktopWindowChrome.installProcessProperties()
     runDesktopApplication(args)
 }
@@ -252,14 +256,17 @@ private fun runDesktopApplication(args: Array<String>) = application {
             if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
 
             updateMessage = DesktopText.UpdateChecking.load(previousSettings.channel.name.lowercase())
-            val result = dependencies.updateService.check(previousSettings.channel)
+            val result = dependencies.updateService.check(
+                previousSettings.channel,
+                proxy = dependencies.vpnManager.subscriptionFetchProxy()
+            )
             val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
-            val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
-            saveUpdateSettings(checkedSettings)
             result.fold(
                 onSuccess = { info ->
+                    val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
+                    saveUpdateSettings(checkedSettings)
                     if (manual || info.shouldShowOffer(previousSettings, checkedAt)) {
-                        if (info.isDownloaded(checkedSettings)) {
+                        if (!manual && info.isDownloaded(checkedSettings)) {
                             updateOffer = null
                             updateMessage = DesktopText.UpdateAlreadyDownloaded.load(info.channel.name.lowercase())
                         } else if (info.isUpdateAvailable) {

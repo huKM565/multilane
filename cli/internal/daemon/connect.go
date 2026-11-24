@@ -30,6 +30,12 @@ func (d *Daemon) startConnect(sel store.Selection) error {
 }
 
 func (d *Daemon) startConnectLocked(sel store.Selection) error {
+	d.mu.Lock()
+	base := d.runCtx
+	d.mu.Unlock()
+	if base != nil && base.Err() != nil {
+		return base.Err()
+	}
 	d.stopConnectLocked()
 	if sel.Mode == "tun" && sel.KillSwitch {
 		if err := d.installKillSwitch(); err != nil {
@@ -43,9 +49,14 @@ func (d *Daemon) startConnectLocked(sel store.Selection) error {
 		d.removeKillSwitch()
 	}
 	d.mu.Lock()
-	base := d.runCtx
+	base = d.runCtx
 	if base == nil {
 		base = context.Background()
+	}
+	if base.Err() != nil {
+		d.mu.Unlock()
+		d.removeKillSwitch()
+		return base.Err()
 	}
 	ctx, cancel := context.WithCancel(base)
 	done := make(chan struct{})
@@ -300,7 +311,7 @@ func (d *Daemon) lineInItsList(all []indexed, sel *store.Selection) ([]links.Ent
 		// when the selection's scope holds one.
 		sel.EntrySub = d.onlyListIn(sel.Subscription)
 		if sel.EntrySub == "" {
-			return nil, fmt.Errorf("%w: the line %s named is no longer in its list; pick one from `ghostlane list`", links.ErrNoMatch, sel.Selector)
+			return nil, fmt.Errorf("%w: the line %s named is no longer in its list; pick one from `multilane-cli list`", links.ErrNoMatch, sel.Selector)
 		}
 	}
 	if c, _ := store.LoadCache(d.deps.StateDir, sel.EntrySub); refusalText(c) != "" {
@@ -309,7 +320,7 @@ func (d *Daemon) lineInItsList(all []indexed, sel *store.Selection) ([]links.Ent
 	var cands []links.Entry
 	if n, err := strconv.Atoi(strings.TrimSpace(sel.Selector)); err == nil {
 		if n < 1 || n > len(all) || all[n-1].sub != sel.EntrySub {
-			return nil, fmt.Errorf("%w: line %d is no longer in its list; pick one from `ghostlane list`", links.ErrNoMatch, n)
+			return nil, fmt.Errorf("%w: line %d is no longer in its list; pick one from `multilane-cli list`", links.ErrNoMatch, n)
 		}
 		cands = []links.Entry{all[n-1].entry}
 	} else {
@@ -813,8 +824,14 @@ func (d *Daemon) refresh(ctx context.Context, force bool) {
 // text changed is reconnected; a vanished line is noted. Under connectMu: a
 // control request must not slip in between reading the selection and acting.
 func (d *Daemon) afterRefresh(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	d.connectMu.Lock()
 	defer d.connectMu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
 	d.mu.Lock()
 	cur, live := d.cur, d.loopLive
 	var stored *store.Selection

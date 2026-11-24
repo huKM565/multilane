@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -49,11 +50,50 @@ func DirectRulesFromFile(path string) string {
 	if strings.TrimSpace(path) == "" {
 		return PrivateDirectRules
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return PrivateDirectRules
 	}
-	return PrivateDirectRules + string(data)
+	defer f.Close()
+	var sb strings.Builder
+	sb.WriteString(PrivateDirectRules)
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "domain:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "domain:")); d != "" {
+				sb.WriteString("domain:")
+				sb.WriteString(d)
+				sb.WriteByte('\n')
+			}
+		case strings.HasPrefix(line, "full:"):
+			if d := strings.TrimSpace(strings.TrimPrefix(line, "full:")); d != "" {
+				sb.WriteString("full:")
+				sb.WriteString(d)
+				sb.WriteByte('\n')
+			}
+		case strings.HasPrefix(line, "keyword:"), strings.HasPrefix(line, "regexp:"),
+			strings.HasPrefix(line, "ruleset:"), strings.HasSuffix(line, ".srs"):
+			continue
+		default:
+			if p, err := netip.ParsePrefix(line); err == nil {
+				sb.WriteString(p.String())
+				sb.WriteByte('\n')
+			} else if ip, err := netip.ParseAddr(line); err == nil {
+				sb.WriteString(netip.PrefixFrom(ip, ip.BitLen()).String())
+				sb.WriteByte('\n')
+			} else if d := strings.TrimPrefix(line, "."); strings.Contains(d, ".") && !strings.ContainsAny(d, "/ \t") {
+				sb.WriteString("domain:")
+				sb.WriteString(d)
+				sb.WriteByte('\n')
+			}
+		}
+	}
+	return sb.String()
 }
 
 type Params struct {

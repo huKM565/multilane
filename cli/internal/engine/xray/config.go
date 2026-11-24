@@ -170,7 +170,7 @@ func BuildBondConfig(p BondParams) ([]byte, error) {
 	}
 
 	fallbackTag := fmt.Sprintf("vless-room-%d", fallbackIdx+1)
-	expected := min(4, len(p.RoomPorts))
+	expected := len(p.RoomPorts)
 	cfg := map[string]any{
 		"log": map[string]any{"loglevel": level},
 		"inbounds": []map[string]any{{

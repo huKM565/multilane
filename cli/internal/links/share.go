@@ -91,6 +91,9 @@ func splitShare(s, scheme string) (*shareParts, error) {
 		return nil, errNoCredentials
 	}
 	userinfo, hostPort := body[:at], body[at+1:]
+	if slash := strings.IndexByte(hostPort, '/'); slash >= 0 {
+		hostPort = hostPort[:slash]
+	}
 	colon := strings.LastIndexByte(hostPort, ':')
 	if colon <= 0 {
 		return nil, errNoHostPort
@@ -176,7 +179,11 @@ func ParseHy2(line string) (*Hy2Line, error) {
 	}
 	q := p.query
 	ins := q.Get("insecure")
-	l := &Hy2Line{Password: p.userinfo, Host: p.host, Port: p.port, SNI: q.Get("sni"), ObfsPassword: q.Get("obfs-password"),
+	password := p.userinfo
+	if unescaped, err := url.PathUnescape(password); err == nil {
+		password = unescaped
+	}
+	l := &Hy2Line{Password: password, Host: p.host, Port: p.port, SNI: q.Get("sni"), ObfsPassword: q.Get("obfs-password"),
 		PinSHA256: q.Get("pinSHA256"), Insecure: ins == "1" || ins == "true", Label: p.tag}
 	if l.Label == "" {
 		l.Label = p.host

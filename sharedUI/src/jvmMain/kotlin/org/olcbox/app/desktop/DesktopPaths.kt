@@ -39,7 +39,11 @@ internal object DesktopPaths {
                 val appData = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }
                 val root = appData?.let { Path(it) } ?: home.resolve("AppData").resolve("Roaming")
                 root.resolve("MultiLane").also {
-                    migrateApprovedData(listOf(root.resolve("IlyukhaLine")), it, ".multilane-import-complete")
+                    migrateApprovedData(
+                        listOf(root.resolve("IlyukhaLine"), root.resolve("ИлюхаLine"), root.resolve("Olcbox")),
+                        it,
+                        ".multilane-import-complete"
+                    )
                 }
             }
             DesktopOs.Linux -> home.resolve(".multilane").also {
@@ -73,5 +77,6 @@ internal object DesktopPaths {
         "device_identity",
         "desktop_socks_proxy_settings.json",
         "desktop_connection_mode",
+        "update_settings.json",
     )
 }
