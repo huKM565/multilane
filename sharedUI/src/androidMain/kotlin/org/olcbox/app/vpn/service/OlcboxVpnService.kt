@@ -79,7 +79,6 @@ import org.olcbox.app.net.AndroidSingBoxController
 import org.olcbox.app.net.AndroidXrayController
 import org.olcbox.app.net.DirectDns
 import org.olcbox.app.net.LinkParser
-import org.olcbox.app.net.MixedProxyBridge
 import org.olcbox.app.net.BondCorePlan
 import org.olcbox.app.net.HttpBondRoomProbe
 import org.olcbox.app.net.bondPlanLogLines
@@ -132,6 +131,8 @@ import org.olcbox.app.vpn.data.KEY_ANDROID_SOCKS_PASSWORD
 import org.olcbox.app.vpn.data.KEY_ANDROID_SOCKS_PORT
 import org.olcbox.app.vpn.data.KEY_ANDROID_SOCKS_USERNAME
 import org.olcbox.app.vpn.data.vpnPrefDataStore
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -208,15 +209,19 @@ class OlcboxVpnService : VpnService() {
     private var splitTunnelMode = AndroidSplitTunnelMode.AllApps
     private var splitTunnelProxyApps = emptySet<String>()
     private var splitTunnelBypassApps = emptySet<String>()
-    private var socksProxy: MixedProxyBridge? = null
+    private var socksProxy: AuthenticatedSocksProxy? = null
+
+    // Unified client: sing-box / Xray cores for vless/hy2/xhttp locations. Exec'd
+    // subprocesses (this VpnService is a Context). The app's UID already bypasses
+    // the tun (addDisallowedApp(self) in applySplitTunneling), so a core's own
+    // sockets don't loop back through the tunnel. `activeCorePort` is the SOCKS
+    // port the hev bridge targets when a core is active (null = olcrtc default),
+    // and `activeCoreLogin` the login that port demands (null = none, proxy mode).
     private val singBoxCore by lazy { AndroidSingBoxController(this) }
     private val xrayCore by lazy { AndroidXrayController(this) }
     private var activeCorePort: Int? = null
     private var activeVerifyPort: Int? = null
     private var activeCoreLogin: SocksLogin? = null
-    private var activeEnginePort: Int? = null
-    private var activeEngineLogin: SocksLogin? = null
-    private val internalTunLogin = SocksLogin("tun", UUID.randomUUID().toString())
 
     /**
      * The core's port for as long as one tun interface lives, and what tun2socks
@@ -475,24 +480,32 @@ class OlcboxVpnService : VpnService() {
             preferences?.get(KEY_ANDROID_SOCKS_PORT)
         }
 
+        val rawHost = AndroidSocksProxySettings.sanitizeHost(
+            intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_HOST)
+                ?: preferences?.get(KEY_ANDROID_SOCKS_HOST)
+        )
+        val rawUsername = (
+            intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_USERNAME)
+                ?: preferences?.get(KEY_ANDROID_SOCKS_USERNAME)
+            ).orEmpty().trim()
+        val rawPassword = (
+            intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_PASSWORD)
+                ?: preferences?.get(KEY_ANDROID_SOCKS_PASSWORD)
+            ).orEmpty().trim()
+        val hasCreds = rawUsername.isNotEmpty() && rawPassword.isNotEmpty()
         return StartOptions(
             connectionMode = AndroidConnectionMode.fromValue(
                 intent.getStringExtra(OlcboxVpnActions.EXTRA_CONNECTION_MODE)
                     ?: preferences?.get(KEY_ANDROID_CONNECTION_MODE)
             ),
-            socksListenHost = AndroidSocksProxySettings.sanitizeHost(
-                intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_HOST)
-                    ?: preferences?.get(KEY_ANDROID_SOCKS_HOST)
-            ),
+            socksListenHost = if (hasCreds) rawHost else AndroidSocksProxySettings.connectHost(rawHost),
             socksListenPort = AndroidSocksProxySettings.sanitizePort(socksPort),
-            socksUsername = (
-                intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_USERNAME)
-                    ?: preferences?.get(KEY_ANDROID_SOCKS_USERNAME)
-                ).orEmpty().takeIf { it.isNotBlank() }.orEmpty(),
-            socksPassword = (
-                intent.getStringExtra(OlcboxVpnActions.EXTRA_SOCKS_PASSWORD)
-                    ?: preferences?.get(KEY_ANDROID_SOCKS_PASSWORD)
-                ).orEmpty(),
+            socksUsername = rawUsername.ifBlank {
+                "olcbox" + UUID.randomUUID().toString().replace("-", "").take(8)
+            },
+            socksPassword = rawPassword.ifBlank {
+                UUID.randomUUID().toString().replace("-", "").take(24)
+            },
             splitTunnelMode = AndroidSplitTunnelMode.fromValue(
                 intent.getStringExtra(OlcboxVpnActions.EXTRA_SPLIT_TUNNEL_MODE)
                     ?: preferences?.get(KEY_ANDROID_SPLIT_TUNNEL_MODE)
@@ -1052,6 +1065,10 @@ class OlcboxVpnService : VpnService() {
         if (requestedGeneration != generation) return
 
         if (connectionMode == AndroidConnectionMode.Proxy) {
+//            if (!startAuthenticatedSocksProxy()) {
+//                stopTransportProcesses(closeTun = true)
+//                return
+//            }
             val proxyExit = verifyTunnel()
             if (requestedGeneration != generation) return
             if (proxyExit == null) {
@@ -1062,7 +1079,8 @@ class OlcboxVpnService : VpnService() {
             resetRecoveryState()
             updateNotification(connectedNotificationText())
             addLog(
-                "Proxy mode connected on mixed (SOCKS5 + HTTP) $socksListenHost:$socksListenPort — exit ${proxyExit.label()}"
+                "Proxy mode connected on SOCKS $socksListenHost:" +
+                    "${activeCorePort ?: socksListenPort} — exit ${proxyExit.label()}"
             )
             startWatchdog()
             return
@@ -1134,7 +1152,6 @@ class OlcboxVpnService : VpnService() {
         resetRecoveryState()
         updateNotification(connectedNotificationText())
         addLog("VPN tunnel established — exit ${exit.label()}")
-        addLog("Local mixed proxy (SOCKS5 + HTTP) listening on $socksListenHost:$socksListenPort")
         startWatchdog()
     }
 
@@ -1155,19 +1172,10 @@ class OlcboxVpnService : VpnService() {
      */
     private suspend fun verifyTunnel(): TunnelExit? {
         updateNotification("Verifying tunnel...")
-        if (connectionMode == AndroidConnectionMode.Proxy) {
-            val userLogin = userProxyLogin()
-            return TunnelVerifier.verify(
-                socksHost = socksConnectHost(),
-                socksPort = socksListenPort,
-                username = userLogin?.username.orEmpty(),
-                password = userLogin?.password.orEmpty()
-            )
-        }
         val (username, password) = upstreamLogin()
         return TunnelVerifier.verify(
             socksHost = AndroidSocksProxySettings.connectHost(socksListenHost),
-            socksPort = activeVerifyPort ?: backendPort(),
+            socksPort = activeVerifyPort ?: activeCorePort ?: socksListenPort,
             username = username,
             password = password
         )
@@ -1229,14 +1237,11 @@ class OlcboxVpnService : VpnService() {
         requestedGeneration: Long,
         setErrorOnFailure: Boolean
     ): Boolean {
-        stopLocalMixedProxy()
         val routing = routingFor(upstream)
         return if (location.kind == LocationKind.Olcrtc) {
             activeCorePort = null
             activeVerifyPort = null
             activeCoreLogin = null
-            activeEnginePort = null
-            activeEngineLogin = null
             if (location.bondVlessLink.isNullOrBlank()) {
                 startMobile(location, upstream, requestedGeneration, setErrorOnFailure, routing)
             } else {
@@ -1272,9 +1277,8 @@ class OlcboxVpnService : VpnService() {
         bondCorePlan: BondCorePlan? = null,
     ): Boolean {
         val tun = connectionMode == AndroidConnectionMode.Tun
-        val userLogin = userProxyLogin()
-        val port = if (tun) sessionCorePort.acquire() else freeLoopbackPort()
-        val login = if (tun) internalTunLogin else null
+        val port = if (tun) sessionCorePort.acquire() else socksListenPort
+        val login = if (tun) SocksLogin.of(socksUsername, socksPassword) else null
         return try {
             val spec = if (bondCorePlan == null) {
                 val raw = location.rawLink ?: error("core location has no link")
@@ -1284,11 +1288,14 @@ class OlcboxVpnService : VpnService() {
                 LinkParser.parse(raw) ?: error("unparseable bonded VLESS link")
             }
             stopCoreProcesses()
-            stopLocalMixedProxy()
             waitForSocksPortReleased(port, SOCKS_RELEASE_QUICK_TIMEOUT_MS)
-            waitForSocksPortReleased(socksListenPort, SOCKS_RELEASE_QUICK_TIMEOUT_MS)
             val label: String
+            // Which core to ask afterwards, decided here rather than re-derived
+            // from the label — the failure path should not have to parse a string
+            // we build for humans.
             val diagnose: () -> String
+            // Which processes must be alive once the port answers. A port that
+            // answers proves nothing about who answers.
             val alive: () -> Boolean
             val fronted = routing is Routing.Rules && connectionMode == AndroidConnectionMode.Tun
             val blockedOnlyVerifyPort = if (routing is Routing.RuleBased && routing.policy == Routing.Policy.BlockedOnly) {
@@ -1297,9 +1304,6 @@ class OlcboxVpnService : VpnService() {
                 null
             }
             var verifyPort: Int? = null
-            var exposedListenPort = port
-            var exposedLogin = login
-            var needsMixedBridge = false
             if (bondCorePlan != null) {
                 val bondSpec = spec as? OutboundSpec.Vless ?: error("bond carrier is not VLESS")
                 val xrayPort = freeLoopbackPort()
@@ -1323,22 +1327,15 @@ class OlcboxVpnService : VpnService() {
                 singBoxCore.start(
                     SingBoxConfig.buildSocksChain(
                         xrayPort,
-                        socksPort = socksListenPort,
+                        socksPort = port,
                         username = login?.username.orEmpty(),
                         password = login?.password.orEmpty(),
                         routing = routing,
                         verboseLogs = verboseDebugLogs,
-                        login = userLogin,
+                        login = login,
                         verifyPort = verifyPort,
-                        tunPort = if (tun) port else null,
-                        tunLogin = if (tun) login else null,
-                        listenHost = socksListenHost,
                     )
                 )
-                if (!tun) {
-                    exposedListenPort = socksListenPort
-                    exposedLogin = userLogin
-                }
                 label = "sing-box front + Xray/olcRTC bond"
                 diagnose = { singBoxCore.diagnostics() + "\n" + xrayCore.diagnostics() }
                 alive = {
@@ -1363,22 +1360,15 @@ class OlcboxVpnService : VpnService() {
                     singBoxCore.start(
                         SingBoxConfig.buildSocksChain(
                             xrayPort,
-                            socksPort = socksListenPort,
+                            socksPort = port,
                             username = login?.username.orEmpty(),
                             password = login?.password.orEmpty(),
                             routing = routing,
                             verboseLogs = verboseDebugLogs,
-                            login = userLogin,
+                            login = login,
                             verifyPort = verifyPort,
-                            tunPort = if (tun) port else null,
-                            tunLogin = if (tun) login else null,
-                            listenHost = socksListenHost,
                         )
                     )
-                    if (!tun) {
-                        exposedListenPort = socksListenPort
-                        exposedLogin = userLogin
-                    }
                     label = "sing-box front + Xray/xhttp"
                     diagnose = { singBoxCore.diagnostics() + "\n" + xrayCore.diagnostics() }
                     alive = { singBoxCore.isRunning() && xrayCore.isRunning() }
@@ -1387,7 +1377,6 @@ class OlcboxVpnService : VpnService() {
                     xrayCore.start(
                         XrayConfig.buildXhttp(spec, socksPort = port, verboseLogs = verboseDebugLogs, login = login)
                     )
-                    needsMixedBridge = true
                     label = "Xray/xhttp"
                     diagnose = xrayCore::diagnostics
                     alive = xrayCore::isRunning
@@ -1397,60 +1386,44 @@ class OlcboxVpnService : VpnService() {
                 singBoxCore.start(
                     SingBoxConfig.build(
                         spec,
-                        socksPort = socksListenPort,
+                        socksPort = port,
                         routing = routing,
                         verboseLogs = verboseDebugLogs,
-                        login = userLogin,
+                        login = login,
                         serverResolver = DirectDns.Servers(upstreamDnsAddresses(upstream)),
                         verifyPort = verifyPort,
-                        tunPort = if (tun) port else null,
-                        tunLogin = if (tun) login else null,
-                        listenHost = socksListenHost,
                     )
                 )
-                if (!tun) {
-                    exposedListenPort = socksListenPort
-                    exposedLogin = userLogin
-                }
                 label = "sing-box/${location.kind}"
                 diagnose = singBoxCore::diagnostics
                 alive = singBoxCore::isRunning
             }
-            activeCorePort = exposedListenPort
+            activeCorePort = port
             activeVerifyPort = verifyPort
-            activeCoreLogin = exposedLogin
-            if (!waitForSocksPortOpen(exposedListenPort, MOBILE_READY_TIMEOUT_MS) || !alive()) {
+            activeCoreLogin = login
+            if (!waitForSocksPortOpen(port, MOBILE_READY_TIMEOUT_MS) || !alive()) {
+                // The core's own account of what went wrong, which otherwise sits
+                // in a cache file only root can read. Without it this branch says
+                // a port did not open and nothing about why, and that is all a
+                // user has ever been able to report.
                 addLog(diagnose())
-                error("$label SOCKS not ready on $exposedListenPort")
-            }
-            if (!needsMixedBridge && !waitForSocksPortOpen(socksListenPort, MOBILE_READY_TIMEOUT_MS)) {
-                addLog(diagnose())
-                error("$label mixed proxy not ready on $socksListenPort")
-            }
-            if (needsMixedBridge) {
-                startLocalMixedProxy(
-                    listenHost = socksListenHost,
-                    listenPort = socksListenPort,
-                    backendPort = exposedListenPort,
-                    clientLogin = userLogin,
-                    backendLogin = exposedLogin,
-                )
+                error("$label SOCKS not ready on $port")
             }
             coroutineContext.ensureActive()
-            addLog("$label ready on $socksListenHost:$socksListenPort")
+            addLog("$label ready on $socksListenHost:$port")
             true
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
                 addLog("core start canceled")
                 stopCoreProcesses()
-                stopLocalMixedProxy()
             }
             throw e
         } catch (e: Exception) {
             val msg = e.message ?: "Core transport failed"
             addLog("core start failed: $msg")
             stopCoreProcesses()
-            stopLocalMixedProxy()
+            // Whatever went wrong, the next start draws another port: one that
+            // something else took in the meantime would fail every start alike.
             if (tun) sessionCorePort.release()
             if (setErrorOnFailure) {
                 setStatus(VpnStatus.Error(msg))
@@ -1474,29 +1447,22 @@ class OlcboxVpnService : VpnService() {
      * fails the way any start does, and the next one draws again. Should the
      * kernel not hand one out, the old fixed port: the login still guards it.
      */
-    private fun freeLoopbackPort(): Int {
-        repeat(8) {
-            val candidate = runCatching {
-                ServerSocket(0, 1, InetAddress.getByName(AndroidSocksProxySettings.DEFAULT_HOST)).use { it.localPort }
-            }.getOrNull()
-            if (candidate != null && candidate != socksListenPort) return candidate
-        }
-        return if (SingBoxConfig.SINGBOX_SOCKS_PORT != socksListenPort) {
-            SingBoxConfig.SINGBOX_SOCKS_PORT
-        } else {
-            SingBoxConfig.SINGBOX_SOCKS_PORT + 1
-        }
-    }
+    private fun freeLoopbackPort(): Int = runCatching {
+        ServerSocket(0, 1, InetAddress.getByName(AndroidSocksProxySettings.DEFAULT_HOST)).use { it.localPort }
+    }.getOrDefault(SingBoxConfig.SINGBOX_SOCKS_PORT)
 
-    private fun userProxyLogin(): SocksLogin? = SocksLogin.of(socksUsername, socksPassword)
-
-    private fun backendPort(): Int = activeCorePort ?: activeEnginePort ?: socksListenPort
-
+    /**
+     * The login the SOCKS server behind the tun demands, as (username, password):
+     * the core's on the core path, olcRTC's own pair otherwise, ("", "") for none.
+     * Everything that talks to that server (tun2socks, the tunnel check, the
+     * channel proxy) asks here, so none of them can disagree with what the server
+     * was started with; see [HevTunnelConfig] for what a disagreement looks like.
+     */
     private fun upstreamLogin(): Pair<String, String> =
-        when {
-            activeCorePort != null -> activeCoreLogin?.let { it.username to it.password } ?: ("" to "")
-            activeEnginePort != null -> activeEngineLogin?.let { it.username to it.password } ?: ("" to "")
-            else -> socksUsername to socksPassword
+        if (activeCorePort != null) {
+            activeCoreLogin?.let { it.username to it.password } ?: ("" to "")
+        } else {
+            socksUsername to socksPassword
         }
 
     /** Poll until the given local SOCKS port accepts connections, or timeout. */
@@ -1662,21 +1628,18 @@ class OlcboxVpnService : VpnService() {
         val config = location.normalized()
         return try {
             installMobileCallbacks()
-            val tun = connectionMode == AndroidConnectionMode.Tun
-            val userLogin = userProxyLogin()
-            val targetSocksPort = if (tun) sessionCorePort.acquire() else freeLoopbackPort()
-            val backendLogin = if (tun) internalTunLogin else null
+            val targetSocksPort = socksListenPort
             val deviceId = deviceIdentityProvider.hwid().orEmpty()
             resetRtcHealthState()
 
-            stopLocalMixedProxy()
             waitForSocksPortReleased(targetSocksPort, SOCKS_RELEASE_QUICK_TIMEOUT_MS)
-            waitForSocksPortReleased(socksListenPort, SOCKS_RELEASE_QUICK_TIMEOUT_MS)
             if (isLocalSocksPortOpen(targetSocksPort)) {
                 throw IllegalStateException("SOCKS port $targetSocksPort is still in use")
             }
             waitForJitsiRoomCleanup(config.bypassProvider)
             bindProcessToNetwork(upstream, "Bound to ${getNetName(upstream)}")
+            // The engine routes by itself (internal/route), as it does on iOS:
+            // the region's lists as rules, or none under Global.
             val directRules = OlcrtcDirectRules.forRouting(routing)
             configureMobileTransport(config, upstream, directRules)
             addLog(
@@ -1689,7 +1652,7 @@ class OlcboxVpnService : VpnService() {
             olcrtc.setDeviceID(deviceId)
             olcrtc.setKey(config.key)
             olcrtc.setSocksPort(targetSocksPort.toLong())
-            olcrtc.setSocksCredentials(backendLogin?.username.orEmpty(), backendLogin?.password.orEmpty())
+            olcrtc.setSocksCredentials(socksUsername, socksPassword)
             olcrtc.start()
             olcrtc.waitReady(OLCRTC_READY_TIMEOUT_MS)
             if (requestedGeneration != generation) {
@@ -1697,16 +1660,7 @@ class OlcboxVpnService : VpnService() {
                 return false
             }
             coroutineContext.ensureActive()
-            activeEnginePort = targetSocksPort
-            activeEngineLogin = backendLogin
-            startLocalMixedProxy(
-                listenHost = socksListenHost,
-                listenPort = socksListenPort,
-                backendPort = targetSocksPort,
-                clientLogin = userLogin,
-                backendLogin = backendLogin,
-            )
-            addLog("olcRTC ready on $socksListenHost:$socksListenPort")
+            addLog("olcRTC ready on $socksListenHost:$targetSocksPort")
             markRtcConnected()
             if (keepProcessBound) {
                 addLog("Keeping olcRTC bound to ${getNetName(upstream)}")
@@ -1757,7 +1711,7 @@ class OlcboxVpnService : VpnService() {
         upstream: Network?,
         directRules: String,
         runtime: OlcrtcRuntime = olcrtc,
-        listenHost: String = AndroidSocksProxySettings.LOOPBACK_HOST,
+        listenHost: String = socksListenHost,
     ) {
         val config = location.normalized()
         runtime.setTransport(config.transport)
@@ -1986,7 +1940,7 @@ class OlcboxVpnService : VpnService() {
                 ipv4 = TUN_IPV4_ADDRESS,
                 socksAddress = socksConnectHost(),
                 socksPort = socksListenPort,
-                corePort = activeCorePort ?: activeEnginePort,
+                corePort = activeCorePort,
                 username = upstreamLogin().first,
                 password = upstreamLogin().second
             )
@@ -1994,9 +1948,10 @@ class OlcboxVpnService : VpnService() {
         return file
     }
 
+    /** Where tun2socks has to point for the transport that is up now; what [writeTun2socksConfig] writes. */
     private fun currentBridgeTarget(): BridgeTarget {
         val (username, password) = upstreamLogin()
-        return BridgeTarget(socksConnectHost(), backendPort(), username, password)
+        return BridgeTarget(socksConnectHost(), activeCorePort ?: socksListenPort, username, password)
     }
 
     /**
@@ -2266,7 +2221,7 @@ class OlcboxVpnService : VpnService() {
             runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
             isCallbackRegistered = false
         }
-        stopLocalMixedProxy()
+        stopAuthenticatedSocksProxy()
         updateUnderlyingNetwork(null)
         unbindProcessFromNetwork()
 
@@ -2301,7 +2256,7 @@ class OlcboxVpnService : VpnService() {
 
     private suspend fun stopVisibleVpnProcesses() {
         val tunThread = tun2socksThread
-        stopLocalMixedProxy()
+        stopAuthenticatedSocksProxy()
         stopTun2socks()
         cleanupVpnInterface()
         tunThread?.interrupt()
@@ -2334,7 +2289,7 @@ class OlcboxVpnService : VpnService() {
         stopMobileBeforeTun: Boolean = false
     ) {
         val tunThread = tun2socksThread
-        stopLocalMixedProxy()
+        stopAuthenticatedSocksProxy()
         if (stopMobileBeforeTun) {
             stopMobile()
         }
@@ -2385,41 +2340,20 @@ class OlcboxVpnService : VpnService() {
         bondMeasuredRooms = emptySet()
         bondLocation = null
         OlcboxVpnState.setBondRooms(null)
+        // Also tear down any active sing-box / Xray core (no-op if none running).
         runCatching { stopCoreProcesses() }
-        activeEnginePort = null
-        activeEngineLogin = null
-        stopLocalMixedProxy()
         if ((wasRunning || bond != null) && provider == LocationConfig.PROVIDER_JITSI) {
             lastJitsiStopCompletedAtMs = System.currentTimeMillis()
         }
     }
 
-    private fun startLocalMixedProxy(
-        listenHost: String,
-        listenPort: Int,
-        backendPort: Int,
-        clientLogin: SocksLogin?,
-        backendLogin: SocksLogin?,
-    ) {
-        stopLocalMixedProxy()
-        socksProxy = MixedProxyBridge(
-            listenHost = listenHost,
-            listenPort = listenPort,
-            backendHost = socksConnectHost(),
-            backendPort = backendPort,
-            clientLogin = clientLogin,
-            backendLogin = backendLogin,
-            onLog = ::addLog,
-        ).also { it.start() }
-    }
-
-    private fun stopLocalMixedProxy() {
+    private fun stopAuthenticatedSocksProxy() {
         socksProxy?.stop()
         socksProxy = null
     }
 
     private suspend fun stopMobileAndWait() {
-        val ports = (listOfNotNull(activeCorePort, activeEnginePort) + bondRoomPorts + socksListenPort).distinct()
+        val ports = (listOfNotNull(activeCorePort) + bondRoomPorts + socksListenPort).distinct()
         stopMobile()
         ports.forEach { waitForSocksPortReleased(it) }
     }
@@ -2989,7 +2923,7 @@ class OlcboxVpnService : VpnService() {
         if (status is VpnStatus.Connected) {
             val (username, password) = upstreamLogin()
             OlcboxVpnState.channelProxy = org.olcbox.app.data.repository.SubscriptionFetchProxy(
-                AndroidSocksProxySettings.connectHost(socksListenHost), backendPort(),
+                AndroidSocksProxySettings.connectHost(socksListenHost), activeCorePort ?: socksListenPort,
                 username,
                 password
             )
@@ -3032,6 +2966,160 @@ class OlcboxVpnService : VpnService() {
     }
 
     private fun connectedNotificationText(): String = "${activeModeLabel()} Connected"
+
+    private class AuthenticatedSocksProxy(
+        private val listenPort: Int,
+        private val backendPort: Int,
+        private val username: String,
+        private val password: String,
+        private val log: (String) -> Unit
+    ) {
+        @Volatile
+        private var stopped = false
+        @Volatile
+        private var serverSocket: ServerSocket? = null
+        private var acceptThread: Thread? = null
+        private val sockets = mutableSetOf<Socket>()
+
+        val isRunning: Boolean
+            get() = !stopped && serverSocket?.isClosed == false && acceptThread?.isAlive == true
+
+        fun start() {
+            stopped = false
+            val server = ServerSocket().apply {
+                reuseAddress = true
+                bind(InetSocketAddress(AndroidSocksProxySettings.DEFAULT_HOST, listenPort))
+            }
+            serverSocket = server
+            acceptThread = thread(name = "OlcboxSocksProxy", isDaemon = true) {
+                acceptLoop(server)
+            }
+            log("SOCKS proxy listening on ${AndroidSocksProxySettings.DEFAULT_HOST}:$listenPort")
+        }
+
+        fun stop() {
+            stopped = true
+            runCatching { serverSocket?.close() }
+            synchronized(sockets) {
+                sockets.forEach { socket -> runCatching { socket.close() } }
+                sockets.clear()
+            }
+            acceptThread?.interrupt()
+            acceptThread = null
+            serverSocket = null
+        }
+
+        private fun acceptLoop(server: ServerSocket) {
+            while (!stopped) {
+                val client = runCatching { server.accept() }
+                    .onFailure { if (!stopped) log("SOCKS proxy accept failed: ${it.message}") }
+                    .getOrNull() ?: continue
+
+                synchronized(sockets) { sockets.add(client) }
+                thread(name = "OlcboxSocksProxyClient", isDaemon = true) {
+                    try {
+                        handleClient(client)
+                    } finally {
+                        synchronized(sockets) { sockets.remove(client) }
+                        runCatching { client.close() }
+                    }
+                }
+            }
+        }
+
+        private fun handleClient(client: Socket) {
+            val clientIn = DataInputStream(client.getInputStream())
+            val clientOut = DataOutputStream(client.getOutputStream())
+            if (!authenticate(clientIn, clientOut)) return
+
+            Socket().use { backend ->
+                backend.connect(
+                    InetSocketAddress(AndroidSocksProxySettings.DEFAULT_HOST, backendPort),
+                    SOCKET_CONNECT_TIMEOUT_MS
+                )
+                val backendIn = DataInputStream(backend.getInputStream())
+                val backendOut = DataOutputStream(backend.getOutputStream())
+
+                backendOut.write(byteArrayOf(SOCKS_VERSION, 0x01, SOCKS_METHOD_USERNAME_PASSWORD))
+                backendOut.flush()
+
+                if (backendIn.readUnsignedByte() != SOCKS_VERSION.toInt()) return
+                if (backendIn.readUnsignedByte() != SOCKS_METHOD_USERNAME_PASSWORD.toInt()) return
+
+                val userBytes = username.toByteArray()
+                val passBytes = password.toByteArray()
+
+                backendOut.write(SOCKS_AUTH_VERSION.toInt())
+                backendOut.write(userBytes.size)
+                backendOut.write(userBytes)
+                backendOut.write(passBytes.size)
+                backendOut.write(passBytes)
+                backendOut.flush()
+
+                if (backendIn.readUnsignedByte() != SOCKS_AUTH_VERSION.toInt()) return
+                if (backendIn.readUnsignedByte() != 0x00) return // 0x00 - успешно
+
+                val c2b = relay(client, backend, "client-to-backend")
+                val b2c = relay(backend, client, "backend-to-client")
+                c2b.join()
+                runCatching { backend.close() }
+                runCatching { client.close() }
+                b2c.join(RELAY_JOIN_TIMEOUT_MS)
+            }
+        }
+
+        private fun authenticate(input: DataInputStream, output: DataOutputStream): Boolean {
+            if (input.readUnsignedByte() != SOCKS_VERSION.toInt()) return false
+            val methodCount = input.readUnsignedByte()
+            var supportsPassword = false
+            repeat(methodCount) {
+                if (input.readUnsignedByte() == SOCKS_METHOD_USERNAME_PASSWORD.toInt()) {
+                    supportsPassword = true
+                }
+            }
+            if (!supportsPassword) {
+                output.write(byteArrayOf(SOCKS_VERSION, SOCKS_METHOD_NO_ACCEPTABLE))
+                output.flush()
+                return false
+            }
+
+            output.write(byteArrayOf(SOCKS_VERSION, SOCKS_METHOD_USERNAME_PASSWORD))
+            output.flush()
+
+            if (input.readUnsignedByte() != SOCKS_AUTH_VERSION.toInt()) return false
+            val userBytes = ByteArray(input.readUnsignedByte())
+            input.readFully(userBytes)
+            val passwordBytes = ByteArray(input.readUnsignedByte())
+            input.readFully(passwordBytes)
+
+            val accepted = userBytes.decodeToString() == username &&
+                passwordBytes.decodeToString() == password
+            output.write(byteArrayOf(SOCKS_AUTH_VERSION, if (accepted) 0x00 else 0x01))
+            output.flush()
+            return accepted
+        }
+
+        private fun relay(from: Socket, to: Socket, name: String): Thread {
+            return thread(name = "OlcboxSocksRelay-$name", isDaemon = true) {
+                runCatching {
+                    from.getInputStream().copyTo(to.getOutputStream(), RELAY_BUFFER_SIZE)
+                }
+                runCatching { to.shutdownOutput() }
+                runCatching { from.shutdownInput() }
+            }
+        }
+
+        private companion object {
+            const val SOCKS_VERSION: Byte = 0x05
+            const val SOCKS_AUTH_VERSION: Byte = 0x01
+            const val SOCKS_METHOD_NO_AUTH: Byte = 0x00
+            const val SOCKS_METHOD_USERNAME_PASSWORD: Byte = 0x02
+            const val SOCKS_METHOD_NO_ACCEPTABLE: Byte = 0xFF.toByte()
+            const val SOCKET_CONNECT_TIMEOUT_MS = 1_000
+            const val RELAY_BUFFER_SIZE = 16 * 1024
+            const val RELAY_JOIN_TIMEOUT_MS = 500L
+        }
+    }
 
     companion object {
         /**

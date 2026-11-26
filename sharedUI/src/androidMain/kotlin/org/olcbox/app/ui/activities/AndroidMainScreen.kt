@@ -8,7 +8,6 @@ import org.olcbox.app.ui.tv.PhoneImportSheet
 import org.olcbox.app.ui.features.home.localizedSingleMessage
 import multiplatform_app.sharedui.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
-import multiplatform_app.sharedui.generated.resources.copied
 import multiplatform_app.sharedui.generated.resources.location_qr
 import multiplatform_app.sharedui.generated.resources.no_browser
 import multiplatform_app.sharedui.generated.resources.qr_imported
@@ -185,7 +184,6 @@ fun AndroidMainScreen(
     val serverListNotFoundText = stringResource(Res.string.server_list_not_found)
     val locationQrTitle = stringResource(Res.string.location_qr)
     val serverListQrTitle = stringResource(Res.string.server_list_qr)
-    val copiedText = stringResource(Res.string.copied)
 
     suspend fun showUpdateResult(info: AppUpdateInfo, manual: Boolean) {
         if (!manual && info.isDownloaded(updateSettings)) {
@@ -605,10 +603,6 @@ fun AndroidMainScreen(
                 if (homeState.isVpnConnected) {
                     viewModel.restartVpnIfRunning()
                 }
-            },
-            onCopyText = { text ->
-                viewModel.copyToClipboard(text)
-                Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
             },
             onSplitTunnelModeSelected = { mode: AndroidSplitTunnelMode ->
                 vpnManager.selectSplitTunnelMode(mode)

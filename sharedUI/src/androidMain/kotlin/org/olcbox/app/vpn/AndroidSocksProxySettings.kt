@@ -10,8 +10,7 @@ data class AndroidSocksProxySettings(
         get() = username.isNotBlank() && password.isNotBlank()
 
     companion object {
-        const val LOOPBACK_HOST = "127.0.0.1"
-        const val DEFAULT_HOST = "0.0.0.0"
+        const val DEFAULT_HOST = "127.0.0.1"
         const val DEFAULT_PORT = 10808
         const val MAX_HOST_LENGTH = 255
         const val MIN_PORT = 1024
@@ -31,7 +30,7 @@ data class AndroidSocksProxySettings(
 
         fun connectHost(listenHost: String): String {
             return when (val sanitized = sanitizeHost(listenHost)) {
-                "0.0.0.0", "::", "[::]" -> LOOPBACK_HOST
+                "0.0.0.0", "::", "[::]" -> DEFAULT_HOST
                 else -> sanitized
             }
         }
