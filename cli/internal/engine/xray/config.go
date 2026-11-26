@@ -79,8 +79,8 @@ type BondParams struct {
 }
 
 func BuildBondConfig(p BondParams) ([]byte, error) {
-	if len(p.RoomPorts) < 1 || len(p.RoomPorts) > 12 {
-		return nil, fmt.Errorf("xray bond: expected 1..12 room ports, got %d", len(p.RoomPorts))
+	if len(p.RoomPorts) < 1 || len(p.RoomPorts) > 16 {
+		return nil, fmt.Errorf("xray bond: expected 1..16 room ports, got %d", len(p.RoomPorts))
 	}
 	seenPorts := map[int]bool{}
 	for _, port := range p.RoomPorts {

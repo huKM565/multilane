@@ -20,7 +20,7 @@ class OlcRtcBond(private val runtimes: List<OlcRtcBondRuntime>) {
     private var stopped = false
 
     init {
-        require(runtimes.size == 4 || runtimes.size == 8 || runtimes.size == 12) { "an olcRTC bond requires four, eight or twelve runtimes" }
+        require(runtimes.size == 4 || runtimes.size == 8 || runtimes.size == 12 || runtimes.size == 16) { "an olcRTC bond requires four, eight, twelve or sixteen runtimes" }
     }
 
     fun start(timeoutMillis: Int): List<Int> {

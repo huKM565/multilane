@@ -33,13 +33,42 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     /// at all, and no amount of reordering our own calls will help.
     private static let useLibbox = true
 
-    /// 1.13 has no `LibboxNewService`: the command server owns the engine, and
-    /// starting sing-box means asking it to. See `LibboxCommandHandler`.
+    private struct ProxyOptions: Decodable {
+        let tunEnabled: Bool
+        let host: String
+        let port: Int
+        let username: String
+        let password: String
+
+        enum CodingKeys: String, CodingKey {
+            case tunEnabled, host, port, username, password
+        }
+
+        init(tunEnabled: Bool, host: String, port: Int, username: String, password: String) {
+            self.tunEnabled = tunEnabled
+            self.host = host
+            self.port = port
+            self.username = username
+            self.password = password
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            tunEnabled = try c.decode(Bool.self, forKey: .tunEnabled)
+            host = try c.decodeIfPresent(String.self, forKey: .host) ?? "0.0.0.0"
+            port = try c.decode(Int.self, forKey: .port)
+            username = try c.decode(String.self, forKey: .username)
+            password = try c.decode(String.self, forKey: .password)
+        }
+
+        static let `default` = ProxyOptions(tunEnabled: true, host: "0.0.0.0", port: 10808, username: "", password: "")
+    }
+
     private var commandServer: LibboxCommandServer?
 
-    /// Held because libbox only keeps a reference from the Go side, and a
-    /// handler collected here would leave the engine calling into nothing.
     private var commandHandler: LibboxCommandHandler?
+
+    private var mixedProxyBridge: MixedProxyBridge?
 
     /// Watches for the device changing network underneath the tunnel.
     ///
@@ -169,23 +198,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let olcrtc = (try? Data(contentsOf: olcrtcURL))
             .flatMap { try? JSONDecoder().decode(OlcrtcEngine.Parameters.self, from: $0) }
 
-        // Before the tunnel's settings go on: from then on the system resolver
-        // is our own tun, and the servers of the network underneath can no
-        // longer be read. For every transport now, not only olcRTC — under
-        // Bypass Russia the config wants one of them too. Counted rather than
-        // listed in the trace — they are the network's addresses, and the
-        // trace keeps to interface names.
+        let proxyURL = container.appendingPathComponent("proxy.json")
+        let proxyOptions = (try? Data(contentsOf: proxyURL))
+            .flatMap { try? JSONDecoder().decode(ProxyOptions.self, from: $0) }
+            ?? .default
+
         let resolvers = ResolverSnapshot.servers()
         NetworkDiagnostics.record("resolvers from the network: \(resolvers.count)")
 
-        // Which engine owns the tun decides which resolvers the system is told
-        // about: sing-box answers 172.19.0.2 itself; hev forwards to resolvers
-        // on the internet. See LibboxPlatform.Tun.
-        let hevOwnsTun = Self.hevOwnsTun(xrayConfig: xrayConfig, olcrtc: olcrtc)
-        let dns = hevOwnsTun ? LibboxPlatform.Tun.dnsThroughSocks : LibboxPlatform.Tun.dns
-        // Applied before the engine starts: libbox asks for the descriptor
-        // synchronously and complains if answering takes long.
-        setTunnelNetworkSettings(LibboxPlatform.tunnelSettings(dns: dns)) { [weak self] error in
+        let hevOwnsTun = proxyOptions.tunEnabled && Self.hevOwnsTun(xrayConfig: xrayConfig, olcrtc: olcrtc)
+        let networkSettings: NEPacketTunnelNetworkSettings
+        if proxyOptions.tunEnabled {
+            let dns = hevOwnsTun ? LibboxPlatform.Tun.dnsThroughSocks : LibboxPlatform.Tun.dns
+            networkSettings = LibboxPlatform.tunnelSettings(dns: dns)
+        } else {
+            networkSettings = LibboxPlatform.proxyOnlySettings()
+        }
+        setTunnelNetworkSettings(networkSettings) { [weak self] error in
             if let error {
                 NetworkDiagnostics.record("tunnel settings failed domain=\((error as NSError).domain) code=\((error as NSError).code)")
                 self?.log.error("tunnel settings rejected: \(error.localizedDescription, privacy: .public)")
@@ -202,6 +231,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 config: config,
                 xrayConfig: xrayConfig?.isEmpty == false ? xrayConfig : nil,
                 olcrtc: olcrtc,
+                proxyOptions: proxyOptions,
                 resolvers: resolvers,
                 container: container,
                 completionHandler: completionHandler
@@ -213,10 +243,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         config: String,
         xrayConfig: String?,
         olcrtc: OlcrtcEngine.Parameters?,
+        proxyOptions: ProxyOptions,
         resolvers: [String],
         container: URL,
         completionHandler: @escaping (Error?) -> Void
     ) {
+        mixedProxyBridge?.stop()
+        mixedProxyBridge = nil
         do {
             mark("setup")
             // libbox keeps its state on disk; inside the group so the app can
@@ -307,22 +340,43 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 "go memory limit \(MobileMemoryLimit() / 1_048_576) MB in force (libbox and libXray defaults replaced)"
             )
 
-            // The engine that speaks the transport is up on its SOCKS port;
-            // hev takes the tun and forwards to it. No libbox service on this
-            // path: sing-box was the second Go stack, and the point is that
-            // there is only one.
             if let socks = Self.hevSocks(xrayConfig: xrayConfig, olcrtc: olcrtc) {
-                mark("hev")
-                guard let fd = TunDescriptor.find(in: packetFlow) else {
-                    throw Self.failure("no descriptor behind packetFlow")
-                }
-                try HevTunnel.start(socks: socks, mtu: LibboxPlatform.Tun.mtu, tunFd: fd)
-                let engine = xrayConfig != nil ? "xray" : "olcrtc"
-                NetworkDiagnostics.record(
-                    "tun up: engine=\(engine)+hev socks=127.0.0.1:\(socks.port) fd=\(fd) dns=\(LibboxPlatform.Tun.dnsThroughSocks.joined(separator: ","))"
+                let clientLogin = MixedProxyBridge.Credentials(
+                    username: proxyOptions.username,
+                    password: proxyOptions.password
                 )
+                let backendLogin = MixedProxyBridge.Credentials(
+                    username: socks.username,
+                    password: socks.password
+                )
+                let bridge = MixedProxyBridge(
+                    listenHost: proxyOptions.host,
+                    listenPort: proxyOptions.port,
+                    backendPort: socks.port,
+                    clientLogin: clientLogin,
+                    backendLogin: backendLogin
+                )
+                try bridge.start()
+                self.mixedProxyBridge = bridge
+
+                let engine = xrayConfig != nil ? "xray" : "olcrtc"
+                if proxyOptions.tunEnabled {
+                    mark("hev")
+                    guard let fd = TunDescriptor.find(in: packetFlow) else {
+                        throw Self.failure("no descriptor behind packetFlow")
+                    }
+                    try HevTunnel.start(socks: socks, mtu: LibboxPlatform.Tun.mtu, tunFd: fd)
+                    NetworkDiagnostics.record(
+                        "tun up: engine=\(engine)+hev socks=127.0.0.1:\(socks.port) mixed=\(proxyOptions.host):\(proxyOptions.port) fd=\(fd) dns=\(LibboxPlatform.Tun.dnsThroughSocks.joined(separator: ","))"
+                    )
+                    log.info("hev-socks5-tunnel started in front of \(engine, privacy: .public)")
+                } else {
+                    NetworkDiagnostics.record(
+                        "proxy-only up: engine=\(engine) mixed=\(proxyOptions.host):\(proxyOptions.port) backend=127.0.0.1:\(socks.port)"
+                    )
+                    log.info("local mixed proxy started on \(proxyOptions.host, privacy: .public):\(proxyOptions.port, privacy: .public) for \(engine, privacy: .public)")
+                }
                 mark("ready")
-                log.info("hev-socks5-tunnel started in front of \(engine, privacy: .public)")
                 completionHandler(nil)
                 return
             }
@@ -354,6 +408,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(nil)
         } catch {
             mark("failed: \(error.localizedDescription)")
+            mixedProxyBridge?.stop()
+            mixedProxyBridge = nil
             HevTunnel.stop()
             XrayEngine.stop()
             OlcrtcEngine.stop()
@@ -470,8 +526,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // leaves the next start fighting the previous one for it. Two calls now:
         // one stops the engine, the other tears down the server that owns it.
         pathMonitor.cancel()
-        // The tun's owner first, on either path: hev stops reading the
-        // descriptor before the engine it forwards to goes away.
+        mixedProxyBridge?.stop()
+        mixedProxyBridge = nil
         HevTunnel.stop()
         try? commandServer?.closeService()
         commandServer?.close()

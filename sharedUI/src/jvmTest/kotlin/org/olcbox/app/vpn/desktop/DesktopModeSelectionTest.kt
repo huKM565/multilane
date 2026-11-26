@@ -1,7 +1,10 @@
 package org.olcbox.app.vpn.desktop
 
+import org.olcbox.app.desktop.DesktopOs
+import org.olcbox.app.vpn.DesktopConnectionMode
 import org.olcbox.app.vpn.DesktopMode
 import org.olcbox.app.vpn.DesktopRulesHome
+import org.olcbox.app.vpn.desktopModeFor
 import org.olcbox.app.vpn.desktopRulesHome
 import org.olcbox.app.vpn.macOsModeFor
 import kotlin.test.Test
@@ -57,5 +60,25 @@ class DesktopModeSelectionTest {
         for (olcrtc in listOf(true, false)) {
             assertEquals(DesktopRulesHome.Daemon, desktopRulesHome(DesktopMode.WindowsTun, olcrtc, needsRules = true))
         }
+    }
+
+    @Test
+    fun disablingTunSelectsLocalProxyModeOnAllDesktopPlatforms() {
+        assertEquals(
+            DesktopMode.SystemProxy,
+            desktopModeFor(DesktopOs.Linux, DesktopConnectionMode.Proxy)
+        )
+        assertEquals(
+            DesktopMode.SystemProxy,
+            desktopModeFor(DesktopOs.Windows, DesktopConnectionMode.Proxy)
+        )
+        assertEquals(
+            DesktopMode.SystemProxy,
+            desktopModeFor(DesktopOs.MacOS, DesktopConnectionMode.Proxy, MacOsTunnelDaemon.Registration.Enabled)
+        )
+        assertEquals(
+            DesktopMode.LinuxTun,
+            desktopModeFor(DesktopOs.Linux, DesktopConnectionMode.Tun)
+        )
     }
 }

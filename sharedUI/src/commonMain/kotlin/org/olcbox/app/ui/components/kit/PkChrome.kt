@@ -384,7 +384,7 @@ fun PkScreenHeader(
                 // Three lines before it is cut. A title is two or three words; on a
                 // narrow phone at a large size each can need a line, and in a
                 // font a little wider than ours "Server lists and sharing" did.
-                maxLines = 3,
+                maxLines = 5,
                 overflow = TextOverflow.Ellipsis
             )
             if (!subtitle.isNullOrBlank()) {

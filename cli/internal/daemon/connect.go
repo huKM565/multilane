@@ -449,6 +449,20 @@ func probeInbound() (addr, user, pass string, err error) {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), user, pass, nil
 }
 
+func (d *Daemon) tunProxyConfig(proxy store.Proxy) (string, string, string) {
+	raw := strings.TrimSpace(d.deps.TunProxyListen)
+	if strings.EqualFold(raw, "off") || strings.EqualFold(raw, "none") {
+		return "", "", ""
+	}
+	if raw != "" {
+		return raw, d.deps.TunProxyUser, d.deps.TunProxyPass
+	}
+	if proxy.Listen == "" || proxy.Port <= 0 {
+		return "", "", ""
+	}
+	return net.JoinHostPort(proxy.Listen, strconv.Itoa(proxy.Port)), proxy.User, proxy.Pass
+}
+
 func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeUser, probePass string) singbox.FrontParams {
 	d.mu.Lock()
 	proxy := d.cfg.Proxy
@@ -460,9 +474,7 @@ func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeU
 		DirectRulesFile: d.deps.DirectRulesPath,
 		TunnelRulesFile: d.deps.TunnelRulesPath}
 	if mode == "tun" {
-		fp.TunProxyListen = d.deps.TunProxyListen
-		fp.TunProxyUser = d.deps.TunProxyUser
-		fp.TunProxyPass = d.deps.TunProxyPass
+		fp.TunProxyListen, fp.TunProxyUser, fp.TunProxyPass = d.tunProxyConfig(proxy)
 	}
 	return fp
 }

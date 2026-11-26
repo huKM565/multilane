@@ -35,7 +35,23 @@ class JvmDesktopSocksProxySettingsStore(
         runCatching { Files.setPosixFilePermissions(file, OWNER_ONLY) }
     }
 
+    fun migrateToOpenProxyIfNeeded(settings: DesktopSocksProxySettings): DesktopSocksProxySettings {
+        val marker = file.parent?.resolve(OPEN_PROXY_MIGRATION_MARKER) ?: return settings
+        if (Files.exists(marker)) return settings
+        runCatching {
+            Files.createDirectories(marker.parent)
+            Files.writeString(marker, "1")
+        }
+        return settings.copy(
+            host = DesktopSocksProxySettings.DEFAULT_HOST,
+            username = "",
+            password = "",
+            shareOnLan = false
+        )
+    }
+
     private companion object {
+        const val OPEN_PROXY_MIGRATION_MARKER = ".open-proxy-migrated"
         val json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true

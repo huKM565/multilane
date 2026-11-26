@@ -38,6 +38,8 @@ import org.olcbox.app.data.identity.PersistentDeviceIdentityProvider
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.vpn.data.KEY_ANDROID_CONNECTION_MODE
 import org.olcbox.app.vpn.data.KEY_ANDROID_DYNAMIC_THEME
+import org.olcbox.app.vpn.data.KEY_ANDROID_LOCAL_PROXY_AUTH_MIGRATED
+import org.olcbox.app.vpn.data.KEY_ANDROID_OPEN_PROXY_MIGRATED
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_BYPASS_APPS
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_MODE
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_PROXY_APPS
@@ -154,10 +156,13 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         port: Int = _proxySettings.value.port
     ) {
         val sanitizedHost = AndroidSocksProxySettings.sanitizeHost(host)
-        val sanitizedUsername = username.trim().take(MAX_SOCKS_USERNAME_LENGTH)
-            .ifBlank { generateProxyUsername() }
-        val sanitized = password.trim().take(MAX_SOCKS_PASSWORD_LENGTH)
-            .ifBlank { generateProxyPassword() }
+        val rawUsername = username.trim().take(MAX_SOCKS_USERNAME_LENGTH)
+        val rawPassword = password.trim().take(MAX_SOCKS_PASSWORD_LENGTH)
+        val (sanitizedUsername, sanitized) = if (rawUsername.isNotEmpty() && rawPassword.isNotEmpty()) {
+            rawUsername to rawPassword
+        } else {
+            "" to ""
+        }
         val sanitizedPort = AndroidSocksProxySettings.sanitizePort(port)
         _proxySettings.value = _proxySettings.value.copy(
             host = sanitizedHost,
@@ -172,6 +177,8 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                 preferences[KEY_ANDROID_SOCKS_USERNAME] = sanitizedUsername
                 preferences[KEY_ANDROID_SOCKS_USERNAME_INITIALIZED] = true
                 preferences[KEY_ANDROID_SOCKS_PASSWORD] = sanitized
+                preferences[KEY_ANDROID_LOCAL_PROXY_AUTH_MIGRATED] = true
+                preferences[KEY_ANDROID_OPEN_PROXY_MIGRATED] = true
             }
         }
     }
@@ -179,7 +186,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     fun updateProxyPassword(password: String) {
         updateProxySettings(
             host = _proxySettings.value.host,
-            username = _proxySettings.value.username,
+            username = _proxySettings.value.username.ifBlank { generateProxyUsername() },
             password = password
         )
     }
@@ -406,14 +413,20 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
 
     private suspend fun ensureProxySettings() {
         appContext.vpnPrefDataStore.edit { preferences ->
-            val username = preferences[KEY_ANDROID_SOCKS_USERNAME]
-            val usernameInitialized = preferences[KEY_ANDROID_SOCKS_USERNAME_INITIALIZED] == true
-            if (username.isNullOrBlank() || (!usernameInitialized && username == LEGACY_DEFAULT_USERNAME)) {
-                preferences[KEY_ANDROID_SOCKS_USERNAME] = generateProxyUsername()
-            }
-            preferences[KEY_ANDROID_SOCKS_USERNAME_INITIALIZED] = true
-            if (preferences[KEY_ANDROID_SOCKS_PASSWORD].isNullOrBlank()) {
-                preferences[KEY_ANDROID_SOCKS_PASSWORD] = generateProxyPassword()
+            if (preferences[KEY_ANDROID_OPEN_PROXY_MIGRATED] != true) {
+                preferences[KEY_ANDROID_SOCKS_HOST] = AndroidSocksProxySettings.DEFAULT_HOST
+                preferences[KEY_ANDROID_SOCKS_USERNAME] = ""
+                preferences[KEY_ANDROID_SOCKS_PASSWORD] = ""
+                preferences[KEY_ANDROID_SOCKS_USERNAME_INITIALIZED] = true
+                preferences[KEY_ANDROID_LOCAL_PROXY_AUTH_MIGRATED] = true
+                preferences[KEY_ANDROID_OPEN_PROXY_MIGRATED] = true
+            } else {
+                val username = preferences[KEY_ANDROID_SOCKS_USERNAME].orEmpty()
+                val password = preferences[KEY_ANDROID_SOCKS_PASSWORD].orEmpty()
+                if (username.isBlank() || password.isBlank()) {
+                    preferences[KEY_ANDROID_SOCKS_USERNAME] = ""
+                    preferences[KEY_ANDROID_SOCKS_PASSWORD] = ""
+                }
             }
             preferences[KEY_ANDROID_SOCKS_HOST] = AndroidSocksProxySettings.sanitizeHost(
                 preferences[KEY_ANDROID_SOCKS_HOST]

@@ -28,6 +28,13 @@ class DesktopOlcRtcBondTest {
     }
 
     @Test
+    fun bondSupportsSixteenRooms() {
+        val bond = DesktopOlcRtcBond(rooms(16))
+        assertTrue(bond.isRunning())
+        assertEquals(16, bond.ports().size)
+    }
+
+    @Test
     fun twelveRoomBondKeepsDistinctPortsAndRestartsADeadProcess() {
         val rooms = rooms(12)
         val replacement = FakeProcess(99)

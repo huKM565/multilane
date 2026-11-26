@@ -12,7 +12,7 @@ fun planBondPaths(config: LocationConfig, allocatePort: () -> Int): BondPathPlan
     val normalized = config.normalized()
     require(normalized.bondVlessLink != null) { "a bonded location requires a VLESS link" }
     val paths = normalized.bondedPaths()
-    require(paths.size == 4 || paths.size == 8 || paths.size == 12) { "a bonded location requires four, eight or twelve paths" }
+    require(paths.size == 4 || paths.size == 8 || paths.size == 12 || paths.size == 16) { "a bonded location requires four, eight, twelve or sixteen paths" }
     val ports = mutableListOf<Int>()
     paths.forEach { _ ->
         val port = allocatePort()

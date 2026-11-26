@@ -126,6 +126,41 @@ class LinuxBondSupervisorTest {
         }
     }
 
+    @Test
+    fun singleProcessPoolStartsPoolBinaryWithoutBashScript() {
+        val root = Files.createTempDirectory("ilyukhaline-supervisor-pool")
+        val commands = mutableListOf<List<String>>()
+        try {
+            val configs = configs(root)
+            val runtime = root.resolve("runtime")
+            val binary = root.resolve("olcrtc")
+            val supervisor = LinuxBondSupervisor(
+                binary = binary,
+                configPaths = configs,
+                runtimeDir = runtime,
+                privilege = { it },
+                launcher = { command ->
+                    commands += command
+                    FakeProcess()
+                },
+                singleProcessPool = true,
+            )
+
+            supervisor.start()
+
+            assertEquals(1, commands.size)
+            assertEquals(
+                listOf(binary.toString(), "-pool", runtime.toString()) + configs.map { it.toString() },
+                commands.single(),
+            )
+            assertFalse(Files.exists(supervisor.scriptPath))
+            supervisor.stop()
+            assertTrue(Files.exists(runtime.resolve("stop")))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     private fun withRunningSupervisor(block: (LinuxBondSupervisor, Process, List<Long>) -> Unit) {
         val root = Files.createTempDirectory("ilyukhaline-supervisor-live")
         val supervisor = LinuxBondSupervisor(

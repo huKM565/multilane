@@ -8,6 +8,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import multiplatform_app.sharedui.generated.resources.action_cancel
 import multiplatform_app.sharedui.generated.resources.action_check_now
+import multiplatform_app.sharedui.generated.resources.action_copy
 import multiplatform_app.sharedui.generated.resources.action_download
 import multiplatform_app.sharedui.generated.resources.action_later
 import multiplatform_app.sharedui.generated.resources.action_qr_share
@@ -21,6 +22,8 @@ import multiplatform_app.sharedui.generated.resources.connection_mode_local_sock
 import multiplatform_app.sharedui.generated.resources.connection_mode_proxy
 import multiplatform_app.sharedui.generated.resources.connection_settings_title
 import multiplatform_app.sharedui.generated.resources.connection_system_tunnel
+import multiplatform_app.sharedui.generated.resources.connection_tun_mode
+import multiplatform_app.sharedui.generated.resources.connection_tun_note
 import multiplatform_app.sharedui.generated.resources.default_interval
 import multiplatform_app.sharedui.generated.resources.every_hours
 import multiplatform_app.sharedui.generated.resources.field_generated_password
@@ -51,14 +54,30 @@ import multiplatform_app.sharedui.generated.resources.listen_address_required
 import multiplatform_app.sharedui.generated.resources.locations_count
 import multiplatform_app.sharedui.generated.resources.logs_entries
 import multiplatform_app.sharedui.generated.resources.logs_no_entries
+import multiplatform_app.sharedui.generated.resources.mode_proxy_summary
+import multiplatform_app.sharedui.generated.resources.mode_tun_summary
 import multiplatform_app.sharedui.generated.resources.no_server_lists
 import multiplatform_app.sharedui.generated.resources.no_server_lists_hint
 import multiplatform_app.sharedui.generated.resources.not_refreshed_yet
 import multiplatform_app.sharedui.generated.resources.password_required
 import multiplatform_app.sharedui.generated.resources.port_range_hint
 import multiplatform_app.sharedui.generated.resources.port_required
+import multiplatform_app.sharedui.generated.resources.proxy_auth_optional_hint
 import multiplatform_app.sharedui.generated.resources.proxy_credentials
 import multiplatform_app.sharedui.generated.resources.proxy_endpoint
+import multiplatform_app.sharedui.generated.resources.proxy_endpoints_section
+import multiplatform_app.sharedui.generated.resources.proxy_http_label
+import multiplatform_app.sharedui.generated.resources.proxy_lan_hint
+import multiplatform_app.sharedui.generated.resources.proxy_mixed_note
+import multiplatform_app.sharedui.generated.resources.proxy_port_section
+import multiplatform_app.sharedui.generated.resources.proxy_row_active
+import multiplatform_app.sharedui.generated.resources.proxy_row_idle
+import multiplatform_app.sharedui.generated.resources.proxy_screen_title
+import multiplatform_app.sharedui.generated.resources.proxy_socks5_label
+import multiplatform_app.sharedui.generated.resources.proxy_status_active
+import multiplatform_app.sharedui.generated.resources.proxy_status_active_body
+import multiplatform_app.sharedui.generated.resources.proxy_status_idle
+import multiplatform_app.sharedui.generated.resources.proxy_status_idle_body
 import multiplatform_app.sharedui.generated.resources.regenerate_password
 import multiplatform_app.sharedui.generated.resources.remove_server_list_question
 import multiplatform_app.sharedui.generated.resources.remove_server_list_text
@@ -205,7 +224,7 @@ data class ApplicationConnectionModeOption(
 )
 
 data class ApplicationSocksProxySettings(
-    val host: String = "127.0.0.1",
+    val host: String = "0.0.0.0",
     val port: Int = DEFAULT_PORT,
     val username: String = "",
     val password: String = "",
@@ -261,6 +280,10 @@ fun ApplicationSettingsSheet(
     connectionModeOptions: List<ApplicationConnectionModeOption> = emptyList(),
     selectedConnectionModeId: String? = null,
     onConnectionModeSelected: (String) -> Unit = {},
+    tunEnabled: Boolean? = null,
+    tunSwitchEnabled: Boolean = true,
+    tunSwitchNote: String? = null,
+    onTunEnabledChanged: (Boolean) -> Unit = {},
     /**
      * How the platform's own tunnel component is doing, when it has one — today
      * the macOS root daemon, which the user installs and approves rather than
@@ -320,6 +343,7 @@ fun ApplicationSettingsSheet(
     onLanSharingChanged: (Boolean) -> Unit = {},
     onLanAddressSelected: (String) -> Unit = {},
     onLanCredentialsRegenerated: () -> Unit = {},
+    onCopyText: (String) -> Unit = {},
     /**
      * Clears the note that the first-run walkthrough has been shown.
      *
@@ -394,7 +418,11 @@ fun ApplicationSettingsSheet(
                     subscriptionSettings = subscriptionSettings,
                     onSubscriptionOptionsClick = { route = SharedSettingsRoute.SubscriptionOptions },
                     showUpdates = showUpdates,
-                    connectionSummary = connectionModeSummary,
+                    connectionSummary = when (tunEnabled) {
+                        true -> stringResource(Res.string.mode_tun_summary)
+                        false -> stringResource(Res.string.mode_proxy_summary)
+                        null -> connectionModeSummary
+                    },
                     routingSummary = routingSettings.mode.localizedHubSummary(),
                     subscriptionsCount = subscriptions.size,
                     onConnectionClick = { route = SharedSettingsRoute.Connection },
@@ -408,12 +436,13 @@ fun ApplicationSettingsSheet(
                     summary = connectionSummary,
                     details = connectionDetails,
                     modeSummary = connectionModeSummary,
+                    isConnectionActive = isConnectionActive,
+                    tunEnabled = tunEnabled,
+                    tunSwitchEnabled = tunSwitchEnabled,
+                    tunSwitchNote = tunSwitchNote,
+                    onTunEnabledChanged = onTunEnabledChanged,
                     socksProxySettings = socksProxySettings,
                     tunnelDaemonSummary = tunnelDaemonSummary,
-                    // One row, and two platforms that have a kill switch to
-                    // put in it, never both at once. The Linux desktop's is
-                    // its tunnel's and comes from the caller. iOS's is the VPN
-                    // profile's and lives in the routing settings.
                     killSwitch = killSwitch
                         ?: routingSettings.killSwitch.takeIf { currentUpdatePlatform().os == "ios" },
                     chromeDtls = routingSettings.olcrtcChromeDtls,
@@ -466,11 +495,8 @@ fun ApplicationSettingsSheet(
                         settings = socksProxySettings,
                         isConnectionActive = isConnectionActive,
                         onBack = { route = SharedSettingsRoute.Connection },
-                        onProxySettingsSaved = onSocksProxySettingsSaved,
-                        onProxyPasswordRegenerated = onSocksProxyPasswordRegenerated,
-                        onLanSharingChanged = onLanSharingChanged,
-                        onLanAddressSelected = onLanAddressSelected,
-                        onLanCredentialsRegenerated = onLanCredentialsRegenerated
+                        onCopyText = onCopyText,
+                        onProxySettingsSaved = onSocksProxySettingsSaved
                     )
                 }
 
@@ -628,6 +654,11 @@ private fun SharedConnectionSettingsContent(
     summary: String,
     details: List<Pair<String, String>>,
     modeSummary: String,
+    isConnectionActive: Boolean,
+    tunEnabled: Boolean?,
+    tunSwitchEnabled: Boolean,
+    tunSwitchNote: String?,
+    onTunEnabledChanged: (Boolean) -> Unit,
     socksProxySettings: ApplicationSocksProxySettings?,
     tunnelDaemonSummary: String?,
     killSwitch: Boolean?,
@@ -655,17 +686,23 @@ private fun SharedConnectionSettingsContent(
         Spacer(Modifier.height(20.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SharedNavigationRow(
-                title = stringResource(Res.string.connection_mode),
-                value = modeSummary,
-                icon = PkIcons.Public,
-                onClick = onConnectionModeClick
-            )
+            if (tunEnabled != null) {
+                ConnectionSwitchRow(
+                    title = stringResource(Res.string.connection_tun_mode),
+                    note = tunSwitchNote ?: stringResource(Res.string.connection_tun_note),
+                    checked = tunEnabled,
+                    enabled = tunSwitchEnabled,
+                    onCheckedChange = onTunEnabledChanged
+                )
+            } else {
+                SharedNavigationRow(
+                    title = stringResource(Res.string.connection_mode),
+                    value = modeSummary,
+                    icon = PkIcons.Public,
+                    onClick = onConnectionModeClick
+                )
+            }
 
-            // Not behind the admin gate. macOS asks *the user* to approve this in
-            // System Settings, so hiding the only way to start that behind seven
-            // taps would hide the app's own instructions from the one person who
-            // can follow them.
             if (tunnelDaemonSummary != null) {
                 SharedNavigationRow(
                     title = stringResource(Res.string.connection_system_tunnel),
@@ -675,15 +712,14 @@ private fun SharedConnectionSettingsContent(
                 )
             }
 
-            // LAN sharing is a user-facing connection feature. The old local
-            // proxy editor remains on the same page, but hiding the whole route
-            // behind the configurator gate would make sharing impossible to use.
-            if (socksProxySettings != null &&
-                (AdminState.configuratorVisible || socksProxySettings.lanSharingSupported)
-            ) {
+            if (socksProxySettings != null) {
                 SharedNavigationRow(
-                    title = if (socksProxySettings.lanSharingSupported) stringResource(Res.string.socks_lan_sharing) else stringResource(Res.string.socks_proxy),
-                    value = "${socksProxySettings.host}:${socksProxySettings.port}",
+                    title = stringResource(Res.string.proxy_screen_title),
+                    value = sharedProxyRowValue(
+                        isConnectionActive = isConnectionActive,
+                        host = socksProxySettings.host,
+                        port = socksProxySettings.port
+                    ),
                     icon = PkIcons.Public,
                     onClick = onSocksProxyClick
                 )
@@ -828,34 +864,224 @@ private fun SharedRoutingSettingsContent(
 }
 
 @Composable
+internal fun sharedProxyRowValue(
+    isConnectionActive: Boolean,
+    host: String,
+    port: Int
+): String = stringResource(
+    if (isConnectionActive) Res.string.proxy_row_active else Res.string.proxy_row_idle,
+    host,
+    port
+)
+
+@Composable
+internal fun SharedProxySettingsBody(
+    host: String,
+    port: Int,
+    isConnectionActive: Boolean,
+    enabled: Boolean = true,
+    lanAddresses: List<String> = emptyList(),
+    onCopyText: (String) -> Unit,
+    onPortSaved: (Int) -> Unit
+) {
+    val connectHost = if (host == "0.0.0.0" || host == "::" || host == "[::]" || host.isBlank()) "127.0.0.1" else host
+    var editedPort by remember(port) { mutableStateOf(port.toString()) }
+    val parsedPort = editedPort.toIntOrNull()
+    val portValid = parsedPort != null && ApplicationSocksProxySettings.isValidPort(parsedPort)
+    val portChanged = parsedPort != null && parsedPort != port
+    val canSave = portValid && portChanged && enabled
+    val httpUrl = "http://$connectHost:$port"
+    val socks5Url = "socks5://$connectHost:$port"
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            color = if (isConnectionActive) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+            border = BorderStroke(
+                1.dp,
+                if (isConnectionActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = if (isConnectionActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (isConnectionActive) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isConnectionActive) Icons.Rounded.Check else PkIcons.Public,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = stringResource(
+                            if (isConnectionActive) Res.string.proxy_status_active else Res.string.proxy_status_idle
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (isConnectionActive) {
+                            stringResource(Res.string.proxy_status_active_body, host, port)
+                        } else {
+                            stringResource(Res.string.proxy_status_idle_body)
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SharedSectionLabel(stringResource(Res.string.proxy_endpoints_section))
+
+            SharedProxyCopyRow(
+                title = stringResource(Res.string.proxy_http_label),
+                value = httpUrl,
+                onCopy = { onCopyText(httpUrl) }
+            )
+
+            SharedProxyCopyRow(
+                title = stringResource(Res.string.proxy_socks5_label),
+                value = socks5Url,
+                onCopy = { onCopyText(socks5Url) }
+            )
+
+            if (lanAddresses.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        Res.string.proxy_lan_hint,
+                        lanAddresses.joinToString(", ") { "$it:$port" }
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = stringResource(Res.string.proxy_mixed_note, port, host),
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalPkPalette.current.textDim
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SharedSectionLabel(stringResource(Res.string.proxy_port_section))
+
+            SharedSocksProxyTextField(
+                value = editedPort,
+                onValueChange = { value ->
+                    editedPort = value.filter { it.isDigit() }.take(5)
+                },
+                label = stringResource(Res.string.field_port),
+                placeholder = ApplicationSocksProxySettings.DEFAULT_PORT.toString(),
+                enabled = enabled,
+                isError = editedPort.isBlank() || !portValid,
+                leadingIcon = PkIcons.Public,
+                supportingText = when {
+                    editedPort.isBlank() -> stringResource(Res.string.port_required)
+                    !portValid -> stringResource(
+                        Res.string.port_range_hint,
+                        ApplicationSocksProxySettings.MIN_PORT,
+                        ApplicationSocksProxySettings.MAX_PORT
+                    )
+                    portChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
+                    portChanged -> stringResource(Res.string.unsaved_change)
+                    else -> null
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                )
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    enabled = canSave,
+                    onClick = { onPortSaved(parsedPort ?: port) }
+                ) {
+                    Icon(Icons.Rounded.Check, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(Res.string.action_save))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedProxyCopyRow(
+    title: String,
+    value: String,
+    onCopy: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+                Text(
+                    text = value,
+                    style = pkMono(14, 1.3),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            TextButton(onClick = onCopy) {
+                Icon(PkIcons.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(Res.string.action_copy))
+            }
+        }
+    }
+}
+
+@Composable
 private fun SharedSocksProxySettingsContent(
     settings: ApplicationSocksProxySettings,
     isConnectionActive: Boolean,
     onBack: () -> Unit,
-    onProxySettingsSaved: (String, String, Int) -> Unit,
-    onProxyPasswordRegenerated: () -> Unit,
-    onLanSharingChanged: (Boolean) -> Unit,
-    onLanAddressSelected: (String) -> Unit,
-    onLanCredentialsRegenerated: () -> Unit
+    onCopyText: (String) -> Unit,
+    onProxySettingsSaved: (String, String, Int) -> Unit
 ) {
-    var editedHost by remember(settings.host) { mutableStateOf(settings.host) }
-    var editedPort by remember(settings.port) { mutableStateOf(settings.port.toString()) }
-    var editedUsername by remember(settings.username) { mutableStateOf(settings.username) }
-    var editedPassword by remember(settings.password) { mutableStateOf(settings.password) }
-    var revealLanPassword by remember(settings.lanPassword) { mutableStateOf(false) }
-    val parsedPort = editedPort.toIntOrNull()
-    val hostValid = editedHost.isNotBlank()
-    val portValid = parsedPort != null && ApplicationSocksProxySettings.isValidPort(parsedPort)
-    val portChanged = parsedPort != null && parsedPort != settings.port
-    val usernameChanged = editedUsername != settings.username
-    val passwordChanged = editedPassword != settings.password
-    val settingsChanged = portChanged || usernameChanged || passwordChanged
-    val canSave = hostValid &&
-            portValid &&
-            editedUsername.isNotBlank() &&
-            editedPassword.isNotBlank() &&
-            settingsChanged
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -864,189 +1090,21 @@ private fun SharedSocksProxySettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SharedDetailHeader(
-            title = if (settings.lanSharingSupported) stringResource(Res.string.lan_sharing) else stringResource(Res.string.socks_proxy),
-            subtitle = settings.lanEndpoint ?: settings.lanAddress.ifBlank { settings.host },
+            title = stringResource(Res.string.proxy_screen_title),
+            subtitle = "${settings.host}:${settings.port}",
             onBack = onBack
         )
 
         Spacer(Modifier.height(20.dp))
 
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            if (settings.lanSharingSupported) {
-                SharedSectionLabel(stringResource(Res.string.lan_sharing))
-                SharedSelectableSettingsCard(
-                    selected = settings.shareOnLan,
-                    icon = PkIcons.Public,
-                    title = stringResource(Res.string.lan_share_title),
-                    subtitle = settings.lanHealth
-                        ?: stringResource(Res.string.lan_share_off_by_default),
-                    enabled = settings.lanAddresses.isNotEmpty(),
-                    onClick = { onLanSharingChanged(!settings.shareOnLan) }
-                )
-
-                if (settings.lanAddresses.isEmpty()) {
-                    Text(
-                        stringResource(Res.string.lan_connect_first),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalPkPalette.current.textDim
-                    )
-                } else {
-                    Text(
-                        stringResource(Res.string.lan_choose_interface),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LocalPkPalette.current.textDim
-                    )
-                    settings.lanAddresses.forEach { address ->
-                        SharedSelectableSettingsCard(
-                            selected = address == settings.lanAddress,
-                            icon = PkIcons.Public,
-                            title = address,
-                            subtitle = if (address == settings.lanAddress) stringResource(Res.string.lan_selected_interface) else stringResource(Res.string.lan_use_interface),
-                            enabled = true,
-                            onClick = { onLanAddressSelected(address) }
-                        )
-                    }
-                }
-
-                if (settings.lanUsername.isNotBlank() && settings.lanPassword.isNotBlank()) {
-                    SharedInfoRow(stringResource(Res.string.lan_endpoint), settings.lanEndpoint ?: "${settings.lanAddress}:${settings.lanPort}")
-                    SharedInfoRow(stringResource(Res.string.field_username), settings.lanUsername)
-                    SharedInfoRow(
-                        stringResource(Res.string.field_password),
-                        if (revealLanPassword) settings.lanPassword else "•".repeat(settings.lanPassword.length)
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { revealLanPassword = !revealLanPassword }) {
-                            Text(if (revealLanPassword) stringResource(Res.string.hide_password) else stringResource(Res.string.show_password))
-                        }
-                        TextButton(onClick = onLanCredentialsRegenerated) {
-                            Text(stringResource(Res.string.lan_regenerate))
-                        }
-                    }
-                }
-
-                Text(
-                    buildString {
-                        append(stringResource(Res.string.lan_socks_warning))
-                        settings.lanSecurityNotice?.let { append(' ').append(it) }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalPkPalette.current.textDim
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-
-            if (AdminState.configuratorVisible) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SharedSectionLabel(stringResource(Res.string.proxy_endpoint))
-
-                SharedSocksProxyTextField(
-                    value = editedHost,
-                    onValueChange = { value ->
-                        editedHost = value
-                            .replace("\r", "")
-                            .replace("\n", "")
-                            .trim()
-                    },
-                    label = stringResource(Res.string.field_listen_address),
-                    placeholder = "127.0.0.1",
-                    enabled = false,
-                    isError = !hostValid,
-                    leadingIcon = PkIcons.Public,
-                    supportingText = if (!hostValid) stringResource(Res.string.listen_address_required) else null,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                )
-
-                SharedSocksProxyTextField(
-                    value = editedPort,
-                    onValueChange = { value ->
-                        editedPort = value.filter { it.isDigit() }.take(5)
-                    },
-                    label = stringResource(Res.string.field_port),
-                    placeholder = ApplicationSocksProxySettings.DEFAULT_PORT.toString(),
-                    enabled = true,
-                    isError = editedPort.isBlank() || !portValid,
-                    leadingIcon = PkIcons.Public,
-                    supportingText = when {
-                        editedPort.isBlank() -> stringResource(Res.string.port_required)
-                        !portValid -> stringResource(Res.string.port_range_hint, ApplicationSocksProxySettings.MIN_PORT, ApplicationSocksProxySettings.MAX_PORT)
-                        portChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
-                        portChanged -> stringResource(Res.string.unsaved_change)
-                        else -> null
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Next
-                    )
-                )
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SharedSectionLabel(stringResource(Res.string.proxy_credentials))
-
-                SharedSocksProxyTextField(
-                    value = editedUsername,
-                    onValueChange = { editedUsername = it.take(ApplicationSocksProxySettings.MAX_CREDENTIAL_LENGTH) },
-                    label = stringResource(Res.string.field_username),
-                    placeholder = "olcbox...",
-                    enabled = true,
-                    isError = editedUsername.isBlank(),
-                    leadingIcon = Icons.Rounded.Person,
-                    supportingText = when {
-                        editedUsername.isBlank() -> stringResource(Res.string.username_required)
-                        usernameChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
-                        usernameChanged -> stringResource(Res.string.unsaved_change)
-                        else -> null
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                )
-                SharedSocksProxyTextField(
-                    value = editedPassword,
-                    onValueChange = { editedPassword = it.take(ApplicationSocksProxySettings.MAX_CREDENTIAL_LENGTH) },
-                    label = stringResource(Res.string.field_password),
-                    placeholder = stringResource(Res.string.field_generated_password),
-                    enabled = true,
-                    isError = editedPassword.isBlank(),
-                    leadingIcon = PkIcons.Key,
-                    supportingText = when {
-                        editedPassword.isBlank() -> stringResource(Res.string.password_required)
-                        passwordChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
-                        passwordChanged -> stringResource(Res.string.unsaved_change)
-                        else -> null
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onProxyPasswordRegenerated) {
-                        Text(stringResource(Res.string.regenerate_password))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        enabled = canSave,
-                        onClick = {
-                            onProxySettingsSaved(
-                                editedUsername,
-                                editedPassword,
-                                parsedPort ?: settings.port
-                            )
-                        }
-                    ) {
-                        Icon(Icons.Rounded.Check, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(Res.string.action_save))
-                    }
-                }
-            }
-        }
+        SharedProxySettingsBody(
+            host = settings.host,
+            port = settings.port,
+            isConnectionActive = isConnectionActive,
+            lanAddresses = settings.lanAddresses,
+            onCopyText = onCopyText,
+            onPortSaved = { port -> onProxySettingsSaved("", "", port) }
+        )
     }
 }
 
@@ -1465,7 +1523,7 @@ private fun SharedNavigationRow(
                     // A row's name is what the row is for. On a narrow phone
                     // "Server list updates" was cut at one line in the language it
                     // is longest in, and at any larger text size in all of them.
-                    maxLines = 3,
+                    maxLines = 5,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(3.dp))

@@ -125,11 +125,14 @@ class LocationConfigBondTest {
     }
 
     @Test
-    fun eightMixedRoomsFormAValidBond() {
-        val config = bondedConfig().copy(bondedRoomConfigs = mixedPaths().take(8))
+    fun eightAndSixteenRoomsFormAValidBond() {
+        val eight = bondedConfig().copy(bondedRoomConfigs = mixedPaths().take(8))
+        assertTrue(eight.isComplete())
+        assertEquals(8, eight.bondedPaths().size)
 
-        assertTrue(config.isComplete())
-        assertEquals(8, config.bondedPaths().size)
+        val sixteen = bondedConfig(rooms = (1..16).map { "room-$it" }).normalized()
+        assertTrue(sixteen.isComplete())
+        assertEquals(16, sixteen.bondedPaths().size)
     }
 
     @Test

@@ -32,6 +32,7 @@ class DesktopBondIntegrationTest {
     fun linuxPoolUsesOneSupervisorAndSharedCorePath() {
         val body = section("private suspend fun startDesktopBond", "private suspend fun refreshDesktopBond")
         assertEquals(1, Regex("LinuxBondSupervisor\\(").findAll(body).count())
+        assertTrue("singleProcessPool = true" in body)
         assertFalse("LinuxPrivilege.command" in body)
         assertTrue("supervisor.isRoomAlive(index)" in body)
         assertTrue("supervisor.logPath(index)" in body)
@@ -138,6 +139,7 @@ class DesktopBondIntegrationTest {
         val body = section("private suspend fun refreshDesktopBond", "private suspend fun recoverDesktopBondRooms")
 
         assertTrue("val fullPoolRunning = desktopBalancedPlan?.roomPorts == bond.rooms.map { it.port }" in body)
+        assertTrue("activeRooms.all { it in desktopMeasuredRooms }" in body)
         assertTrue("if (fullPoolRunning) return true" in body)
         assertEquals(1, Regex("rebalanceDesktopBond\\(").findAll(body).count())
         assertTrue(body.indexOf("if (fullPoolRunning) return true") < body.indexOf("rebalanceDesktopBond("))

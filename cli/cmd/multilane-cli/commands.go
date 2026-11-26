@@ -95,7 +95,8 @@ proxy first, so a dead server never gets the tun.
 
   --proxy   (default) a local SOCKS5 + HTTP proxy on 127.0.0.1:1080; needs no
             privileges; 'status' prints the environment lines to paste.
-  --tun     routes the whole machine through the tunnel. Inbound services
+  --tun     routes the whole machine through the tunnel while keeping the local
+            SOCKS5 + HTTP proxy open on 127.0.0.1:1080. Inbound services
             (SSH, web, databases) keep answering on the public address; private
             ranges stay direct; IPv6 is refused rather than leaked. Needs the
             service's CAP_NET_ADMIN (the installed unit has it).

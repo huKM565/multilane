@@ -78,7 +78,7 @@ object DesktopConnectionModePreference {
             DesktopConnectionModeOption(
                 mode = DesktopConnectionMode.Proxy,
                 title = "Proxy",
-                summary = "Local SOCKS5 proxy — only apps that follow the system proxy"
+                summary = "HTTP and SOCKS5 proxy — for apps and devices pointed at this port"
             )
         )
         DesktopOs.Windows -> listOf(
@@ -90,16 +90,19 @@ object DesktopConnectionModePreference {
             DesktopConnectionModeOption(
                 mode = DesktopConnectionMode.Proxy,
                 title = "Proxy",
-                summary = "Local SOCKS5 proxy — only apps that follow the system proxy"
+                summary = "HTTP and SOCKS5 proxy — for apps and devices pointed at this port"
             )
         )
-        // One option, and it is not a choice: there is no system-proxy
-        // implementation for Linux, so offering it would be offering an error.
         DesktopOs.Linux -> listOf(
             DesktopConnectionModeOption(
                 mode = DesktopConnectionMode.Tun,
                 title = "System-wide tunnel",
                 summary = "Every app on this machine, through a TUN device"
+            ),
+            DesktopConnectionModeOption(
+                mode = DesktopConnectionMode.Proxy,
+                title = "Proxy",
+                summary = "HTTP and SOCKS5 proxy — for apps and devices pointed at this port"
             )
         )
         DesktopOs.Other -> emptyList()

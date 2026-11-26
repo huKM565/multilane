@@ -77,8 +77,10 @@ func (d *Daemon) status() *ipc.Status {
 		if d.cur.mode == "proxy" {
 			addr := net.JoinHostPort(d.cfg.Proxy.Listen, strconv.Itoa(d.cfg.Proxy.Port))
 			st.Proxy = &ipc.ProxyView{Socks: addr, HTTP: addr}
-		} else if d.cur.mode == "tun" && d.deps.TunProxyListen != "" {
-			st.Proxy = &ipc.ProxyView{Socks: d.deps.TunProxyListen, HTTP: d.deps.TunProxyListen}
+		} else if d.cur.mode == "tun" {
+			if addr, _, _ := d.tunProxyConfig(d.cfg.Proxy); addr != "" {
+				st.Proxy = &ipc.ProxyView{Socks: addr, HTTP: addr}
+			}
 		}
 	case d.pending != nil:
 		v := entryView(0, *d.pending)

@@ -6,7 +6,7 @@ import java.security.SecureRandom
 
 @Serializable
 data class DesktopSocksProxySettings(
-    val host: String = PacServer.LOCAL_SOCKS_HOST,
+    val host: String = DEFAULT_HOST,
     val port: Int = PacServer.LOCAL_SOCKS_PORT,
     val username: String = "",
     val password: String = "",
@@ -29,7 +29,7 @@ data class DesktopSocksProxySettings(
 
     fun normalized(): DesktopSocksProxySettings {
         return copy(
-            host = host.ifBlank { PacServer.LOCAL_SOCKS_HOST },
+            host = host.ifBlank { DEFAULT_HOST },
             port = sanitizePort(port),
             username = username.take(MAX_CREDENTIAL_LENGTH),
             password = password.take(MAX_CREDENTIAL_LENGTH),
@@ -47,6 +47,7 @@ data class DesktopSocksProxySettings(
     )
 
     companion object {
+        const val DEFAULT_HOST = "0.0.0.0"
         const val MIN_PORT = 1024
         const val MAX_PORT = 65535
         const val MAX_CREDENTIAL_LENGTH = 64

@@ -72,11 +72,17 @@ object SingBoxConfig {
         serverResolver: DirectDns? = null,
         autoDetectInterface: Boolean = false,
         verifyPort: Int? = null,
+        tunPort: Int? = null,
+        tunLogin: SocksLogin? = null,
+        listenHost: String = "127.0.0.1",
     ): String = render(
         socksPort, routing, verboseLogs, login,
         serverResolver = serverResolver.takeIf { !XrayConfig.isIpLiteral(outbound.host) },
         autoDetectInterface = autoDetectInterface,
         verifyPort = verifyPort,
+        tunPort = tunPort,
+        tunLogin = tunLogin,
+        listenHost = listenHost,
     ) { addOutbound(outbound) }
 
     /// iOS addressing. Fixed rather than negotiated: the extension applies these
@@ -129,7 +135,12 @@ object SingBoxConfig {
         directDns: DirectDns = DirectDns.Placeholder,
         verboseLogs: Boolean = false,
         logOutput: String? = null,
-    ): String = renderTun(address, mtu, resolveOverTcp = false, routing, directDns, verboseLogs, logOutput) {
+        proxyPort: Int? = null,
+        proxyLogin: SocksLogin? = null,
+        proxyListenHost: String = "127.0.0.1",
+    ): String = renderTun(
+        address, mtu, resolveOverTcp = false, routing, directDns, verboseLogs, logOutput, proxyPort, proxyLogin, proxyListenHost
+    ) {
         addOutbound(outbound)
     }
 
@@ -153,8 +164,11 @@ object SingBoxConfig {
         directDns: DirectDns = DirectDns.Placeholder,
         verboseLogs: Boolean = false,
         logOutput: String? = null,
+        proxyPort: Int? = null,
+        proxyLogin: SocksLogin? = null,
+        proxyListenHost: String = "127.0.0.1",
     ): String = renderTun(
-        address, mtu, resolveOverTcp = upstreamUdpIsLossy, routing, directDns, verboseLogs, logOutput
+        address, mtu, resolveOverTcp = upstreamUdpIsLossy, routing, directDns, verboseLogs, logOutput, proxyPort, proxyLogin, proxyListenHost
     ) {
         addSocksOutbound(socksPort, username, password)
     }
@@ -176,7 +190,12 @@ object SingBoxConfig {
         verboseLogs: Boolean = false,
         login: SocksLogin? = null,
         verifyPort: Int? = null,
-    ): String = render(socksPort, routing, verboseLogs, login, verifyPort = verifyPort) {
+        tunPort: Int? = null,
+        tunLogin: SocksLogin? = null,
+        listenHost: String = "127.0.0.1",
+    ): String = render(
+        socksPort, routing, verboseLogs, login, verifyPort = verifyPort, tunPort = tunPort, tunLogin = tunLogin, listenHost = listenHost
+    ) {
         addSocksOutbound(upstreamPort, username, password)
     }
 
@@ -596,6 +615,9 @@ object SingBoxConfig {
         directDns: DirectDns,
         verboseLogs: Boolean,
         logOutput: String?,
+        proxyPort: Int? = null,
+        proxyLogin: SocksLogin? = null,
+        proxyListenHost: String = "127.0.0.1",
         outbounds: JsonArrayBuilder.() -> Unit,
     ): String {
         val bypass = routing as? Routing.RuleBased
@@ -621,6 +643,9 @@ object SingBoxConfig {
                     put("mtu", mtu)
                     put("auto_route", true)
                     put("stack", "gvisor")
+                }
+                if (proxyPort != null) {
+                    addLoopbackInbound("mixed", "proxy-in", proxyPort, proxyLogin, proxyListenHost)
                 }
             }
             putJsonArray("outbounds") {
@@ -678,6 +703,9 @@ object SingBoxConfig {
         serverResolver: DirectDns? = null,
         autoDetectInterface: Boolean = false,
         verifyPort: Int? = null,
+        tunPort: Int? = null,
+        tunLogin: SocksLogin? = null,
+        listenHost: String = "127.0.0.1",
         outbounds: JsonArrayBuilder.() -> Unit
     ): String {
         val bypass = routing as? Routing.RuleBased
@@ -690,27 +718,12 @@ object SingBoxConfig {
                 putJsonArray("servers") { addDirectDnsServer(resolver) }
             }
             putJsonArray("inbounds") {
-                addJsonObject {
-                    put("type", "socks"); put("tag", "in")
-                    put("listen", "127.0.0.1"); put("listen_port", socksPort)
-                    if (login != null) putJsonArray("users") {
-                        addJsonObject {
-                            put("username", login.username)
-                            put("password", login.password)
-                        }
-                    }
+                addLoopbackInbound("mixed", "in", socksPort, login, listenHost)
+                if (tunPort != null) {
+                    addLoopbackInbound("socks", "tun-proxy-in", tunPort, tunLogin)
                 }
                 if (hasVerifyInbound) {
-                    addJsonObject {
-                        put("type", "socks"); put("tag", "verify-in")
-                        put("listen", "127.0.0.1"); put("listen_port", verifyPort)
-                        if (login != null) putJsonArray("users") {
-                            addJsonObject {
-                                put("username", login.username)
-                                put("password", login.password)
-                            }
-                        }
-                    }
+                    addLoopbackInbound("socks", "verify-in", verifyPort, login)
                 }
             }
             putJsonArray("outbounds") {
@@ -724,6 +737,25 @@ object SingBoxConfig {
             }
         }
         return obj.toString()
+    }
+
+    private fun JsonArrayBuilder.addLoopbackInbound(
+        type: String,
+        tag: String,
+        port: Int,
+        login: SocksLogin?,
+        listenHost: String = "127.0.0.1",
+    ) {
+        addJsonObject {
+            put("type", type); put("tag", tag)
+            put("listen", listenHost); put("listen_port", port)
+            if (login != null) putJsonArray("users") {
+                addJsonObject {
+                    put("username", login.username)
+                    put("password", login.password)
+                }
+            }
+        }
     }
 
     private fun coreLogLevel(verboseLogs: Boolean): String = if (verboseLogs) "debug" else "warn"

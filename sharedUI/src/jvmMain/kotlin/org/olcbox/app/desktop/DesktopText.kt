@@ -123,7 +123,7 @@ internal val DESKTOP_MODE_TEXTS: Map<String, StringResource> = mapOf(
     "Every app on this Mac, through a utun" to Res.string.desktop_mode_tunnel_mac,
     "Install the system-wide tunnel below first" to Res.string.desktop_mode_install_first,
     "Proxy" to Res.string.connection_mode_proxy,
-    "Local SOCKS5 proxy — only apps that follow the system proxy" to Res.string.desktop_mode_proxy,
+    "HTTP and SOCKS5 proxy — for apps and devices pointed at this port" to Res.string.desktop_mode_proxy,
     "Every app on this PC — MultiLane restarts as administrator" to Res.string.desktop_mode_tunnel_windows,
     "Every app on this machine, through a TUN device" to Res.string.desktop_mode_tunnel_linux,
     WINDOWS_TUNNEL_CARRIES_ALL to Res.string.desktop_routing_unavailable,

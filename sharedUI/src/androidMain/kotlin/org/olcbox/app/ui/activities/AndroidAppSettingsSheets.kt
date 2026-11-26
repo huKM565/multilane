@@ -23,11 +23,10 @@ import multiplatform_app.sharedui.generated.resources.apps_no_match
 import multiplatform_app.sharedui.generated.resources.apps_no_match_hint
 import multiplatform_app.sharedui.generated.resources.apps_none_found
 import multiplatform_app.sharedui.generated.resources.apps_none_found_hint
-import multiplatform_app.sharedui.generated.resources.connection_mode
-import multiplatform_app.sharedui.generated.resources.connection_mode_local_socks
-import multiplatform_app.sharedui.generated.resources.connection_mode_proxy
 import multiplatform_app.sharedui.generated.resources.connection_settings_android_value
 import multiplatform_app.sharedui.generated.resources.connection_settings_title
+import multiplatform_app.sharedui.generated.resources.connection_tun_mode
+import multiplatform_app.sharedui.generated.resources.connection_tun_note
 import multiplatform_app.sharedui.generated.resources.default_interval
 import multiplatform_app.sharedui.generated.resources.every_hours
 import multiplatform_app.sharedui.generated.resources.field_generated_password
@@ -44,10 +43,7 @@ import multiplatform_app.sharedui.generated.resources.listen_address_required
 import multiplatform_app.sharedui.generated.resources.locations_count
 import multiplatform_app.sharedui.generated.resources.logs_entries
 import multiplatform_app.sharedui.generated.resources.logs_no_entries
-import multiplatform_app.sharedui.generated.resources.mode_full_tunnel
-import multiplatform_app.sharedui.generated.resources.mode_proxy_description
 import multiplatform_app.sharedui.generated.resources.mode_proxy_summary
-import multiplatform_app.sharedui.generated.resources.mode_tun_description
 import multiplatform_app.sharedui.generated.resources.mode_tun_summary
 import multiplatform_app.sharedui.generated.resources.no_server_lists
 import multiplatform_app.sharedui.generated.resources.no_server_lists_hint
@@ -55,7 +51,9 @@ import multiplatform_app.sharedui.generated.resources.not_refreshed_yet
 import multiplatform_app.sharedui.generated.resources.password_required
 import multiplatform_app.sharedui.generated.resources.port_range_hint
 import multiplatform_app.sharedui.generated.resources.port_required
+import multiplatform_app.sharedui.generated.resources.proxy_auth_optional_hint
 import multiplatform_app.sharedui.generated.resources.proxy_credentials_section
+import multiplatform_app.sharedui.generated.resources.proxy_screen_title
 import multiplatform_app.sharedui.generated.resources.regenerate_password
 import multiplatform_app.sharedui.generated.resources.remove_server_list_question
 import multiplatform_app.sharedui.generated.resources.remove_server_list_text
@@ -230,6 +228,9 @@ import org.olcbox.app.ui.theme.LocalPkPalette
 import org.olcbox.app.CurrentAppInfo
 import org.olcbox.app.admin.AdminState
 import org.olcbox.app.data.share.SubscriptionShareItem
+import org.olcbox.app.ui.components.ConnectionSwitchRow
+import org.olcbox.app.ui.components.SharedProxySettingsBody
+import org.olcbox.app.ui.components.sharedProxyRowValue
 import org.olcbox.app.update.AppUpdateSettings
 import org.olcbox.app.ui.components.kit.pkSubscriptionSourceLine
 import org.olcbox.app.ui.components.kit.PkSectionLabel
@@ -294,6 +295,7 @@ internal fun AppSettingsSheet(
     onModeSelected: (AndroidConnectionMode) -> Unit,
     onProxySettingsSaved: (String, String, String, Int) -> Unit,
     onProxyPasswordRegenerated: () -> Unit,
+    onCopyText: (String) -> Unit = {},
     onSplitTunnelModeSelected: (AndroidSplitTunnelMode) -> Unit,
     onSplitTunnelAppToggled: (AndroidSplitTunnelList, String) -> Unit,
     onSplitTunnelAppsSelected: (AndroidSplitTunnelList, Set<String>) -> Unit
@@ -321,7 +323,6 @@ internal fun AppSettingsSheet(
             }
 
             is AppSettingsRoute.AppList -> AppSettingsRoute.SplitTunneling
-            AppSettingsRoute.ConnectionMode,
             AppSettingsRoute.SocksProxy,
             AppSettingsRoute.Routing,
             AppSettingsRoute.SplitTunneling -> AppSettingsRoute.ConnectionSettings
@@ -405,8 +406,9 @@ internal fun AppSettingsSheet(
                         proxySettings = proxySettings,
                         splitTunnelSettings = splitTunnelSettings,
                         enabled = enabled,
+                        isConnectionActive = isConnectionActive,
                         onBack = { route = AppSettingsRoute.Hub },
-                        onConnectionModeClick = { route = AppSettingsRoute.ConnectionMode },
+                        onModeSelected = onModeSelected,
                         onProxySettingsClick = { route = AppSettingsRoute.SocksProxy },
                         routingSettings = routingSettings,
                         onRoutingClick = { route = AppSettingsRoute.Routing },
@@ -414,20 +416,13 @@ internal fun AppSettingsSheet(
                         onChromeDtlsChanged = { onRoutingSettingsChanged(routingSettings.copy(olcrtcChromeDtls = it)) }
                     )
 
-                    AppSettingsRoute.ConnectionMode -> ConnectionModeSettingsContent(
-                        selectedMode = selectedMode,
-                        enabled = enabled,
-                        onBack = { route = AppSettingsRoute.ConnectionSettings },
-                        onModeSelected = onModeSelected
-                    )
-
                     AppSettingsRoute.SocksProxy -> SocksProxySettingsContent(
                         proxySettings = proxySettings,
                         enabled = enabled,
                         isConnectionActive = isConnectionActive,
                         onBack = { route = AppSettingsRoute.ConnectionSettings },
-                        onProxySettingsSaved = onProxySettingsSaved,
-                        onProxyPasswordRegenerated = onProxyPasswordRegenerated
+                        onCopyText = onCopyText,
+                        onProxySettingsSaved = onProxySettingsSaved
                     )
 
                     AppSettingsRoute.Routing -> RoutingSettingsScreen(
@@ -522,7 +517,7 @@ private fun AppSettingsHubContent(
     ) {
         SettingsNavigationRow(
             title = stringResource(Res.string.connection_settings_title),
-            value = stringResource(Res.string.connection_settings_android_value),
+            value = selectedMode.settingsSummary(),
             icon = selectedMode.icon(),
             enabled = enabled,
             onClick = onConnectionSettingsClick
@@ -583,8 +578,9 @@ private fun ConnectionSettingsContent(
     proxySettings: AndroidSocksProxySettings,
     splitTunnelSettings: AndroidSplitTunnelSettings,
     enabled: Boolean,
+    isConnectionActive: Boolean,
     onBack: () -> Unit,
-    onConnectionModeClick: () -> Unit,
+    onModeSelected: (AndroidConnectionMode) -> Unit,
     onProxySettingsClick: () -> Unit,
     routingSettings: RoutingSettings,
     onRoutingClick: () -> Unit,
@@ -607,12 +603,14 @@ private fun ConnectionSettingsContent(
         Spacer(Modifier.height(20.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SettingsNavigationRow(
-                title = stringResource(Res.string.connection_mode),
-                value = selectedMode.settingsSummary(),
-                icon = selectedMode.icon(),
+            ConnectionSwitchRow(
+                title = stringResource(Res.string.connection_tun_mode),
+                note = stringResource(Res.string.connection_tun_note),
+                checked = selectedMode == AndroidConnectionMode.Tun,
                 enabled = enabled,
-                onClick = onConnectionModeClick
+                onCheckedChange = { checked ->
+                    onModeSelected(if (checked) AndroidConnectionMode.Tun else AndroidConnectionMode.Proxy)
+                }
             )
             // Android's own always-on: the system starts the VPN at boot and
             // brings it back when it drops, and "Block connections without VPN"
@@ -657,16 +655,17 @@ private fun ConnectionSettingsContent(
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
-            // Editing the local proxy credentials/port is plumbing: admin-only.
-            if (AdminState.configuratorVisible) {
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.socks_proxy),
-                    value = "${proxySettings.host}:${proxySettings.port}",
-                    icon = PkIcons.Public,
-                    enabled = enabled,
-                    onClick = onProxySettingsClick
-                )
-            }
+            SettingsNavigationRow(
+                title = stringResource(Res.string.proxy_screen_title),
+                value = sharedProxyRowValue(
+                    isConnectionActive = isConnectionActive,
+                    host = proxySettings.host,
+                    port = proxySettings.port
+                ),
+                icon = PkIcons.Public,
+                enabled = enabled,
+                onClick = onProxySettingsClick
+            )
             SettingsNavigationRow(
                 title = stringResource(Res.string.settings_routing),
                 value = routingSettings.mode.localizedHubSummary(),
@@ -691,70 +690,14 @@ private fun ConnectionSettingsContent(
 }
 
 @Composable
-private fun ConnectionModeSettingsContent(
-    selectedMode: AndroidConnectionMode,
-    enabled: Boolean,
-    onBack: () -> Unit,
-    onModeSelected: (AndroidConnectionMode) -> Unit
-) {
-    val options = listOf(AndroidConnectionMode.Tun, AndroidConnectionMode.Proxy)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp)
-    ) {
-        SettingsDetailHeader(
-            title = stringResource(Res.string.connection_mode),
-            subtitle = selectedMode.subtitle(),
-            onBack = onBack
-        )
-
-        Spacer(Modifier.height(20.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            options.forEach { mode ->
-                ConnectionModeOption(
-                    mode = mode,
-                    selected = selectedMode == mode,
-                    enabled = enabled,
-                    onClick = { onModeSelected(mode) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun SocksProxySettingsContent(
     proxySettings: AndroidSocksProxySettings,
     enabled: Boolean,
     isConnectionActive: Boolean,
     onBack: () -> Unit,
-    onProxySettingsSaved: (String, String, String, Int) -> Unit,
-    onProxyPasswordRegenerated: () -> Unit
+    onCopyText: (String) -> Unit,
+    onProxySettingsSaved: (String, String, String, Int) -> Unit
 ) {
-    var editedHost by remember(proxySettings.host) { mutableStateOf(proxySettings.host) }
-    var editedPort by remember(proxySettings.port) { mutableStateOf(proxySettings.port.toString()) }
-    var editedUsername by remember(proxySettings.username) { mutableStateOf(proxySettings.username) }
-    var editedPassword by remember(proxySettings.password) { mutableStateOf(proxySettings.password) }
-    val parsedPort = editedPort.toIntOrNull()
-    val hostValid = editedHost.isNotBlank()
-    val portValid = parsedPort != null && AndroidSocksProxySettings.isValidPort(parsedPort)
-    val hostChanged = editedHost != proxySettings.host
-    val portChanged = parsedPort != null && parsedPort != proxySettings.port
-    val usernameChanged = editedUsername != proxySettings.username
-    val passwordChanged = editedPassword != proxySettings.password
-    val settingsChanged = hostChanged || portChanged || usernameChanged || passwordChanged
-    val canSave = hostValid &&
-            portValid &&
-            editedUsername.isNotBlank() &&
-            editedPassword.isNotBlank() &&
-            settingsChanged &&
-            enabled
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -763,47 +706,22 @@ private fun SocksProxySettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = stringResource(Res.string.socks_proxy),
-            subtitle = proxySettings.host,
+            title = stringResource(Res.string.proxy_screen_title),
+            subtitle = "${proxySettings.host}:${proxySettings.port}",
             onBack = onBack
         )
 
         Spacer(Modifier.height(20.dp))
 
-        SocksProxySettingsForm(
-            host = editedHost,
-            port = editedPort,
-            username = editedUsername,
-            password = editedPassword,
-            hostValid = hostValid,
-            portValid = portValid,
-            hostChanged = hostChanged,
-            portChanged = portChanged,
-            usernameChanged = usernameChanged,
-            passwordChanged = passwordChanged,
-            canSave = canSave,
-            enabled = enabled,
+        SharedProxySettingsBody(
+            host = proxySettings.host,
+            port = proxySettings.port,
             isConnectionActive = isConnectionActive,
-            onHostChanged = { value ->
-                editedHost = value
-                    .replace("\r", "")
-                    .replace("\n", "")
-                    .take(AndroidSocksProxySettings.MAX_HOST_LENGTH)
-            },
-            onPortChanged = { value ->
-                editedPort = value.filter { it.isDigit() }.take(MAX_PROXY_PORT_LENGTH)
-            },
-            onUsernameChanged = { value -> editedUsername = value.take(MAX_PROXY_USERNAME_LENGTH) },
-            onPasswordChanged = { value -> editedPassword = value.take(MAX_PROXY_PASSWORD_LENGTH) },
-            onSaveSettings = {
-                onProxySettingsSaved(
-                    editedHost,
-                    editedUsername,
-                    editedPassword,
-                    parsedPort ?: proxySettings.port
-                )
-            },
-            onRegeneratePassword = onProxyPasswordRegenerated
+            enabled = enabled,
+            onCopyText = onCopyText,
+            onPortSaved = { port ->
+                onProxySettingsSaved(AndroidSocksProxySettings.DEFAULT_HOST, "", "", port)
+            }
         )
     }
 }
@@ -1548,7 +1466,7 @@ private fun SettingsNavigationRow(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 3,
+                    maxLines = 5,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(3.dp))
@@ -1646,21 +1564,9 @@ private fun SettingsDetailHeader(
     PkScreenHeader(title = title, subtitle = subtitle, onBack = onBack, modifier = modifier)
 }
 
-@Composable
-private fun ConnectionModeOption(
-    mode: AndroidConnectionMode,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    SelectableSettingsCard(
-        selected = selected,
-        enabled = enabled,
-        icon = mode.icon(),
-        title = mode.label(),
-        subtitle = mode.description(),
-        onClick = onClick
-    )
+private fun AndroidConnectionMode.icon() = when (this) {
+    AndroidConnectionMode.Tun -> PkIcons.Shield
+    AndroidConnectionMode.Proxy -> PkIcons.Public
 }
 
 @Composable
@@ -2067,16 +1973,21 @@ private fun SocksProxySettingsForm(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SettingsSectionLabel(stringResource(Res.string.proxy_credentials_section))
 
+            val bothBlank = username.isBlank() && password.isBlank()
+            val usernameHalfMissing = username.isBlank() && password.isNotBlank()
+            val passwordHalfMissing = password.isBlank() && username.isNotBlank()
+
             SocksProxyTextField(
                 value = username,
                 onValueChange = onUsernameChanged,
                 label = stringResource(Res.string.field_username),
-                placeholder = "olcbox...",
+                placeholder = "",
                 enabled = enabled,
-                isError = username.isBlank(),
+                isError = usernameHalfMissing,
                 leadingIcon = Icons.Rounded.Person,
                 supportingText = when {
-                    username.isBlank() -> stringResource(Res.string.username_required)
+                    usernameHalfMissing -> stringResource(Res.string.username_required)
+                    bothBlank -> stringResource(Res.string.proxy_auth_optional_hint)
                     usernameChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
                     usernameChanged -> stringResource(Res.string.unsaved_change)
                     else -> null
@@ -2088,12 +1999,13 @@ private fun SocksProxySettingsForm(
                 value = password,
                 onValueChange = onPasswordChanged,
                 label = stringResource(Res.string.field_password),
-                placeholder = stringResource(Res.string.field_generated_password),
+                placeholder = "",
                 enabled = enabled,
-                isError = password.isBlank(),
+                isError = passwordHalfMissing,
                 leadingIcon = PkIcons.Key,
                 supportingText = when {
-                    password.isBlank() -> stringResource(Res.string.password_required)
+                    passwordHalfMissing -> stringResource(Res.string.password_required)
+                    bothBlank -> stringResource(Res.string.proxy_auth_optional_hint)
                     passwordChanged && isConnectionActive -> stringResource(Res.string.saving_restarts_connection)
                     passwordChanged -> stringResource(Res.string.unsaved_change)
                     else -> null
@@ -2400,7 +2312,6 @@ private fun Drawable.toImageBitmap(sizePx: Int): ImageBitmap {
 private sealed class AppSettingsRoute(val depth: Int) {
     object Hub : AppSettingsRoute(0)
     object ConnectionSettings : AppSettingsRoute(1)
-    object ConnectionMode : AppSettingsRoute(1)
     object SocksProxy : AppSettingsRoute(1)
     object Routing : AppSettingsRoute(1)
     object SplitTunneling : AppSettingsRoute(1)
@@ -2415,14 +2326,6 @@ private fun AppSettingsInitialRoute.toRoute(): AppSettingsRoute {
     return when (this) {
         AppSettingsInitialRoute.Hub -> AppSettingsRoute.Hub
         AppSettingsInitialRoute.SplitTunneling -> AppSettingsRoute.SplitTunneling
-    }
-}
-
-@Composable
-private fun AndroidConnectionMode.label(): String {
-    return when (this) {
-        AndroidConnectionMode.Tun -> "TUN"
-        AndroidConnectionMode.Proxy -> stringResource(Res.string.connection_mode_proxy)
     }
 }
 
@@ -2452,32 +2355,11 @@ private fun AndroidConnectionMode.shortLabel(): String {
 }
 
 @Composable
-private fun AndroidConnectionMode.subtitle(): String {
-    return when (this) {
-        AndroidConnectionMode.Tun -> stringResource(Res.string.mode_full_tunnel)
-        AndroidConnectionMode.Proxy -> stringResource(Res.string.connection_mode_local_socks)
-    }
-}
-
-@Composable
 private fun AndroidConnectionMode.settingsSummary(): String {
     return when (this) {
         AndroidConnectionMode.Tun -> stringResource(Res.string.mode_tun_summary)
         AndroidConnectionMode.Proxy -> stringResource(Res.string.mode_proxy_summary)
     }
-}
-
-@Composable
-private fun AndroidConnectionMode.description(): String {
-    return when (this) {
-        AndroidConnectionMode.Tun -> stringResource(Res.string.mode_tun_description)
-        AndroidConnectionMode.Proxy -> stringResource(Res.string.mode_proxy_description)
-    }
-}
-
-private fun AndroidConnectionMode.icon() = when (this) {
-    AndroidConnectionMode.Tun -> PkIcons.Shield
-    AndroidConnectionMode.Proxy -> PkIcons.Public
 }
 
 @Composable

@@ -54,7 +54,7 @@ class DesktopOlcRtcBond(
     private val readyIndexes = readyIndexes.toMutableSet()
 
     init {
-        require(rooms.size == 4 || rooms.size == 8 || rooms.size == 12) { "a desktop olcRTC bond requires four, eight or twelve rooms" }
+        require(rooms.size == 4 || rooms.size == 8 || rooms.size == 12 || rooms.size == 16) { "a desktop olcRTC bond requires four, eight, twelve or sixteen rooms" }
         require(rooms.map { it.port }.distinct().size == rooms.size) { "bonded rooms need distinct ports" }
     }
 

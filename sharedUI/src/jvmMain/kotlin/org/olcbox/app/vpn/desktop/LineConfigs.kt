@@ -68,7 +68,8 @@ internal object LineConfigs {
         login: SocksLogin? = null,
         serverResolver: DirectDns? = null,
         autoDetectInterface: Boolean = false,
-        bindInterface: String? = null
+        bindInterface: String? = null,
+        listenHost: String = PacServer.LOCAL_SOCKS_HOST
     ): CoreConfigs {
         val xhttp = xhttpOf(spec)
             ?: return CoreConfigs(
@@ -79,7 +80,8 @@ internal object LineConfigs {
                     verboseLogs = verboseLogs,
                     login = login,
                     serverResolver = serverResolver,
-                    autoDetectInterface = autoDetectInterface
+                    autoDetectInterface = autoDetectInterface,
+                    listenHost = listenHost
                 ),
                 xray = null
             )
@@ -101,7 +103,8 @@ internal object LineConfigs {
                 socksPort = port,
                 routing = routing,
                 verboseLogs = verboseLogs,
-                login = login
+                login = login,
+                listenHost = listenHost
             ),
             xray = XrayConfig.buildXhttp(
                 xhttp,
@@ -125,7 +128,8 @@ internal object LineConfigs {
         port: Int,
         routing: Routing.Rules,
         verboseLogs: Boolean,
-        login: SocksLogin? = null
+        login: SocksLogin? = null,
+        listenHost: String = PacServer.LOCAL_SOCKS_HOST
     ): String = SingBoxConfig.buildSocksChain(
         upstreamPort = enginePort,
         socksPort = port,
@@ -133,7 +137,8 @@ internal object LineConfigs {
         password = enginePassword,
         routing = routing,
         verboseLogs = verboseLogs,
-        login = login
+        login = login,
+        listenHost = listenHost
     )
 
     /**
@@ -145,6 +150,7 @@ internal object LineConfigs {
      */
     fun engineSettings(settings: DesktopSocksProxySettings, endpoint: SessionEndpoint): DesktopSocksProxySettings =
         settings.copy(
+            host = PacServer.LOCAL_SOCKS_HOST,
             port = endpoint.port,
             username = endpoint.login?.username.orEmpty(),
             password = endpoint.login?.password.orEmpty()

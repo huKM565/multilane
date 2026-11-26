@@ -61,8 +61,8 @@ func Start(ctx context.Context, p Params) (*Session, error) {
 		return nil, errors.New("olcrtc bond: line is not bonded")
 	}
 	rooms := p.Line.BondRooms
-	if len(rooms) < 1 || len(rooms) > 12 {
-		return nil, fmt.Errorf("olcrtc bond: expected 1..12 rooms, got %d", len(rooms))
+	if len(rooms) < 1 || len(rooms) > 16 {
+		return nil, fmt.Errorf("olcrtc bond: expected 1..16 rooms, got %d", len(rooms))
 	}
 	readyTimeout := p.ReadyTimeout
 	if readyTimeout <= 0 {

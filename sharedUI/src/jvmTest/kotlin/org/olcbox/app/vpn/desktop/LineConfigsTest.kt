@@ -207,7 +207,10 @@ class LineConfigsTest {
         assertEquals("", entered.username)
         assertEquals("", entered.password)
         // Nothing else of the settings is the endpoint's to change.
-        assertEquals(settings.copy(port = 10810, username = "", password = ""), entered)
+        assertEquals(
+            settings.copy(host = PacServer.LOCAL_SOCKS_HOST, port = 10810, username = "", password = ""),
+            entered
+        )
         val bare = yaml(entered)
         assertContains(bare, "socks:\n  host: '127.0.0.1'\n  port: 10810\n")
         assertFalse("user:" in bare, bare)

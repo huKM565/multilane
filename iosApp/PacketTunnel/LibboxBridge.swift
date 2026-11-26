@@ -120,6 +120,15 @@ final class LibboxPlatform: NSObject, LibboxPlatformInterfaceProtocol {
         return settings
     }
 
+    static func proxyOnlySettings() -> NEPacketTunnelNetworkSettings {
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: Tun.address)
+        let ipv4 = NEIPv4Settings(addresses: [Tun.address], subnetMasks: [Tun.mask])
+        ipv4.includedRoutes = []
+        settings.ipv4Settings = ipv4
+        settings.mtu = NSNumber(value: Tun.mtu)
+        return settings
+    }
+
     // MARK: - things iOS answers plainly
 
     func underNetworkExtension() -> Bool { true }

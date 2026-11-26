@@ -339,6 +339,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
                 shareOnLan = false
             )
         }
+        safeProxySettings = dependencies.socksProxySettingsStore.migrateToOpenProxyIfNeeded(safeProxySettings)
         safeProxySettings = safeProxySettings.normalized()
         dependencies.vpnManager.updateSocksProxySettings(safeProxySettings)
         if (safeProxySettings != savedProxySettings) {
@@ -574,31 +575,30 @@ private fun runDesktopApplication(args: Array<String>) = application {
                             )
                         },
                         selectedConnectionModeId = effectiveConnectionMode?.mode?.id,
+                        tunEnabled = effectiveConnectionMode?.mode == DesktopConnectionMode.Tun,
+                        tunSwitchEnabled = connectionModeOptions.firstOrNull {
+                            it.mode == DesktopConnectionMode.Tun
+                        }?.enabled == true,
+                        tunSwitchNote = connectionModeOptions.firstOrNull {
+                            it.mode == DesktopConnectionMode.Tun && !it.enabled
+                        }?.disabledReason?.let { localizedDesktopText(it) },
+                        onTunEnabledChanged = { enabled ->
+                            val mode = if (enabled) DesktopConnectionMode.Tun else DesktopConnectionMode.Proxy
+                            if (mode != selectedConnectionMode) {
+                                DesktopConnectionModePreference.select(mode)
+                                selectedConnectionMode = mode
+                                dependencies.homeViewModel.restartVpnIfRunning()
+                            }
+                        },
                         onConnectionModeSelected = { id ->
                             val mode = DesktopConnectionMode.fromId(id)
                             if (mode != selectedConnectionMode) {
                                 DesktopConnectionModePreference.select(mode)
                                 selectedConnectionMode = mode
-                                // Restart rather than wait for the next connect: a
-                                // mode that takes effect at some unannounced later
-                                // time is exactly what this screen was already
-                                // confusing people with. Same call Android makes
-                                // on the same gesture.
                                 dependencies.homeViewModel.restartVpnIfRunning()
                             }
                         },
-                        // The PAC server is how the proxy mode delivers traffic and
-                        // has nothing to do with a tun. Listing its URL under a
-                        // system-wide tunnel invites someone to point a browser at
-                        // a component that is not in the path.
-                        connectionDetails = if (effectiveConnectionMode?.mode == DesktopConnectionMode.Proxy) {
-                            listOf(
-                                "PAC URL" to "http://127.0.0.1:10809/proxy.pac",
-                                "PAC Target" to "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}"
-                            )
-                        } else {
-                            emptyList()
-                        },
+                        connectionDetails = emptyList(),
                         socksProxySettings = socksProxySettings.toApplicationSocksProxySettings(
                             lanAddresses = lanAddresses,
                             lanEndpoint = lanProxyEndpoint,
@@ -695,13 +695,16 @@ private fun runDesktopApplication(args: Array<String>) = application {
                                 }
                             }
                         },
-                        onSocksProxySettingsSaved = { username, password, port ->
+                        onSocksProxySettingsSaved = { _, _, port ->
                             val settings = socksProxySettings.copy(
+                                host = DesktopSocksProxySettings.DEFAULT_HOST,
                                 port = port,
-                                username = username,
-                                password = password
+                                username = "",
+                                password = "",
+                                shareOnLan = false
                             ).normalized()
                             dependencies.vpnManager.updateSocksProxySettings(settings)
+                            dependencies.vpnManager.applyLanSharingSettings(settings)
                             scope.launch {
                                 dependencies.socksProxySettingsStore.save(settings)
                             }
@@ -709,6 +712,10 @@ private fun runDesktopApplication(args: Array<String>) = application {
                             if (homeState.isVpnConnected) {
                                 dependencies.homeViewModel.restartVpnIfRunning()
                             }
+                        },
+                        onCopyText = { text ->
+                            dependencies.homeViewModel.copyToClipboard(text)
+                            scope.launch { desktopNotice = DesktopText.Copied.load() }
                         },
                         onLanSharingChanged = { enabled ->
                             dependencies.vpnManager.refreshLanAddresses()
@@ -744,6 +751,7 @@ private fun runDesktopApplication(args: Array<String>) = application {
                         },
                         onSocksProxyPasswordRegenerated = {
                             val settings = socksProxySettings.copy(
+                                username = socksProxySettings.username.ifBlank { "multilane" },
                                 password = generateDesktopProxyPassword()
                             ).normalized()
                             dependencies.vpnManager.updateSocksProxySettings(settings)

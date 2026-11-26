@@ -4,12 +4,16 @@ import org.olcbox.app.ui.features.home.localizedSingleMessage
 import multiplatform_app.sharedui.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import multiplatform_app.sharedui.generated.resources.config_imported
+import multiplatform_app.sharedui.generated.resources.connection_mode_local_socks
 import multiplatform_app.sharedui.generated.resources.connection_not_connected
+import multiplatform_app.sharedui.generated.resources.copied
 import multiplatform_app.sharedui.generated.resources.detail_all_traffic
 import multiplatform_app.sharedui.generated.resources.detail_exit
 import multiplatform_app.sharedui.generated.resources.detail_not_routed
 import multiplatform_app.sharedui.generated.resources.imported_from_qr
 import multiplatform_app.sharedui.generated.resources.label_transport
+import multiplatform_app.sharedui.generated.resources.mode_proxy_summary
+import multiplatform_app.sharedui.generated.resources.mode_tun_summary
 import multiplatform_app.sharedui.generated.resources.plan_traffic
 import multiplatform_app.sharedui.generated.resources.server_list_added
 import multiplatform_app.sharedui.generated.resources.server_list_not_found
@@ -210,17 +214,13 @@ private fun IosApp(
         val homeState by dependencies.homeViewModel.state.collectAsState()
         val subscriptionSettings by dependencies.homeViewModel.subscriptionSettings.collectAsState()
         val routingSettings by dependencies.homeViewModel.routingSettings.collectAsState()
-        // What the connection actually is, not what it was two rewrites ago.
-        // olcRTC ran as an in-app SOCKS endpoint on 127.0.0.1 once; it runs in
-        // the packet tunnel extension now, like every other transport, and the
-        // port a user could set there is overridden inside the extension. The
-        // sheet went on describing "Local SOCKS5 proxy 127.0.0.1:<port>" and
-        // offering credentials that changed nothing observable.
+        val tunEnabled by dependencies.vpnManager.tunEnabled.collectAsState()
+        val socksProxySettings by dependencies.vpnManager.socksProxySettings.collectAsState()
         val activeLocation = homeState.selectedLocation?.config
         val connectionSummary = when {
             homeState.isVpnConnected ->
                 listOfNotNull(
-                    stringResource(Res.string.system_vpn),
+                    stringResource(if (tunEnabled) Res.string.system_vpn else Res.string.connection_mode_local_socks),
                     activeLocation?.transportKind()?.label()
                 ).joinToString(" · ")
 
@@ -233,6 +233,7 @@ private fun IosApp(
         val serverListNotFoundText = stringResource(Res.string.server_list_not_found)
         val locationShareTitle = stringResource(Res.string.share_location_title)
         val serverListShareTitle = stringResource(Res.string.share_server_list_title)
+        val copiedText = stringResource(Res.string.copied)
 
         Box(modifier = Modifier.fillMaxSize()) {
             OlcboxAppContent(
@@ -332,13 +333,35 @@ private fun IosApp(
                             ?.let { TransportGroup.baseName(it) }
                             ?.takeIf { it.isNotBlank() }
                             ?.let { stringResource(Res.string.detail_exit) to it },
-                        stringResource(Res.string.plan_traffic) to stringResource(
-                            if (homeState.isVpnConnected) Res.string.detail_all_traffic else Res.string.detail_not_routed
-                        )
+                        stringResource(Res.string.plan_traffic) to when {
+                            !homeState.isVpnConnected -> stringResource(Res.string.detail_not_routed)
+                            tunEnabled -> stringResource(Res.string.detail_all_traffic)
+                            else -> "${socksProxySettings.host}:${socksProxySettings.port}"
+                        }
                     ),
-                    // No local proxy to configure: the extension carries
-                    // everything, and its SOCKS port is internal to it.
-                    socksProxySettings = null,
+                    socksProxySettings = socksProxySettings,
+                    tunEnabled = tunEnabled,
+                    onTunEnabledChanged = { enabled ->
+                        if (dependencies.vpnManager.setTunEnabled(enabled) && homeState.isVpnConnected) {
+                            dependencies.homeViewModel.restartVpnIfRunning()
+                        }
+                    },
+                    onSocksProxySettingsSaved = { username, password, port ->
+                        dependencies.vpnManager.updateSocksProxySettings(username, password, port)
+                        if (homeState.isVpnConnected) {
+                            dependencies.homeViewModel.restartVpnIfRunning()
+                        }
+                    },
+                    onSocksProxyPasswordRegenerated = {
+                        dependencies.vpnManager.regenerateSocksProxyPassword()
+                        if (homeState.isVpnConnected) {
+                            dependencies.homeViewModel.restartVpnIfRunning()
+                        }
+                    },
+                    onCopyText = { text ->
+                        dependencies.homeViewModel.copyToClipboard(text)
+                        platformBridge.showMessage(copiedText)
+                    },
                     isConnectionActive = homeState.isVpnConnected,
                     subscriptionSettings = subscriptionSettings,
                     onSubscriptionSettingsChanged = dependencies.homeViewModel::updateSubscriptionSettings,
@@ -351,7 +374,9 @@ private fun IosApp(
                     compactRouting = false,
                     onRoutingSettingsChanged = dependencies.homeViewModel::updateRoutingSettings,
                     connectionModeTitle = stringResource(Res.string.system_vpn),
-                    connectionModeSummary = stringResource(Res.string.system_vpn_summary),
+                    connectionModeSummary = stringResource(
+                        if (tunEnabled) Res.string.mode_tun_summary else Res.string.mode_proxy_summary
+                    ),
                     showUpdates = false,
                     onDismiss = { isAppSettingsOpen = false },
                     onSaveLogsClick = {

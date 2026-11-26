@@ -149,6 +149,12 @@ fun registerOlcRtcBuildTask(
 ) = tasks.register<Exec>(taskName) {
     val outputFile = generatedNativeResources.map { it.file("native/$outputName") }
 
+    inputs.files(
+        fileTree(olcrtcRepoDir) {
+            include("**/*.go", "**/*.c", "**/*.h", "**/go.mod", "**/go.sum")
+            exclude(".git/**", ".worktrees/**", "build/**")
+        }
+    )
     outputs.file(outputFile)
     workingDir = olcrtcRepoDir.get()
     environment("GOOS", goos)
@@ -201,6 +207,12 @@ fun registerOlcRtcLibraryBuildTask(
 ) = tasks.register<Exec>(taskName) {
     val outputFile = generatedNativeResources.map { it.file("native/$outputName") }
 
+    inputs.files(
+        fileTree(olcrtcRepoDir) {
+            include("**/*.go", "**/*.c", "**/*.h", "**/go.mod", "**/go.sum")
+            exclude(".git/**", ".worktrees/**", "build/**")
+        }
+    )
     outputs.file(outputFile)
     workingDir = olcrtcRepoDir.get()
     environment("GOOS", goos)

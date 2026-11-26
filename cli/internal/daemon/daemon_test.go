@@ -1731,3 +1731,48 @@ func TestASelectionStaysInItsListWhileItsHostRefusesTheDevice(t *testing.T) {
 		})
 	}
 }
+
+func TestTunModeExposesMixedProxyByDefault(t *testing.T) {
+	_, d, _ := newWorld(t)
+	var mu sync.Mutex
+	var seenTunProxy string
+	origStartFront := d.deps.StartFront
+	d.deps.StartFront = func(ctx context.Context, p singbox.FrontParams) (Front, error) {
+		if p.Mode == singbox.ModeTun {
+			mu.Lock()
+			seenTunProxy = p.TunProxyListen
+			mu.Unlock()
+		}
+		return origStartFront(ctx, p)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = d.Run(ctx) }()
+
+	if resp := d.Handle(ctx, ipc.Request{Verb: "add", Source: listURL}); !resp.OK {
+		t.Fatalf("%+v", resp)
+	}
+	if resp := d.Handle(ctx, ipc.Request{Verb: "connect", Selector: "DE", Mode: "tun"}); !resp.OK {
+		t.Fatalf("%+v", resp)
+	}
+	st := waitState(t, d, "up")
+	mu.Lock()
+	gotTunProxy := seenTunProxy
+	mu.Unlock()
+	if gotTunProxy != "127.0.0.1:1080" {
+		t.Fatalf("tun front did not open default mixed proxy: %q", gotTunProxy)
+	}
+	if st.Proxy == nil || st.Proxy.Socks != "127.0.0.1:1080" || st.Proxy.HTTP != "127.0.0.1:1080" {
+		t.Fatalf("status in tun mode missing mixed proxy: %+v", st.Proxy)
+	}
+	if resp := d.Handle(ctx, ipc.Request{Verb: "disconnect"}); !resp.OK {
+		t.Fatalf("%+v", resp)
+	}
+	waitState(t, d, "idle")
+
+	d.deps.TunProxyListen = "off"
+	fp := d.frontParams("tun", singbox.Upstream{}, "127.0.0.1:1", "u", "p")
+	if fp.TunProxyListen != "" {
+		t.Fatalf("explicit opt-out failed: %q", fp.TunProxyListen)
+	}
+}

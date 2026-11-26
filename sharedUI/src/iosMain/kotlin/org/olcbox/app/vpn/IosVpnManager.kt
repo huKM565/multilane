@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 import org.olcbox.app.crypt.PlatformCrypto
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationsRepository
+import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.ios.IosBridgeCallback
 import org.olcbox.app.ios.IosBridgeResult
 import org.olcbox.app.ios.IosOlcRtcRoomsUpdate
@@ -83,8 +84,10 @@ class IosVpnManager(
     private val _connectedSince = MutableStateFlow<Long?>(null)
     override val connectedSince: StateFlow<Long?> = _connectedSince.asStateFlow()
 
-    /** Every session here is a tunnel interface, and the system counts what crosses it. */
-    override val countsTraffic: Boolean get() = true
+    private val _tunEnabled = MutableStateFlow(loadTunEnabled())
+    val tunEnabled: StateFlow<Boolean> = _tunEnabled.asStateFlow()
+
+    override val countsTraffic: Boolean get() = _tunEnabled.value
 
     private val _socksProxySettings = MutableStateFlow(loadSocksProxySettings())
     val socksProxySettings: StateFlow<ApplicationSocksProxySettings> = _socksProxySettings.asStateFlow()
@@ -314,25 +317,6 @@ class IosVpnManager(
         return runCheck(locationConfig) { request -> olcRtcBridge.check(request) }
     }
 
-    fun updateSocksProxySettings(username: String, password: String, port: Int) {
-        val settings = ApplicationSocksProxySettings(
-            port = sanitizePort(port),
-            username = username.trim().take(MAX_CREDENTIAL_LENGTH).ifBlank { generateCredential(USERNAME_LENGTH) },
-            password = password.trim().take(MAX_CREDENTIAL_LENGTH).ifBlank { generateCredential(PASSWORD_LENGTH) }
-        )
-        _socksProxySettings.value = settings
-        saveSocksProxySettings(settings)
-    }
-
-    fun regenerateSocksProxyPassword() {
-        val current = _socksProxySettings.value
-        updateSocksProxySettings(
-            username = current.username,
-            password = generateCredential(PASSWORD_LENGTH),
-            port = current.port
-        )
-    }
-
     fun close() {
         desiredConnected = false
         systemSyncJob?.cancel()
@@ -487,52 +471,69 @@ class IosVpnManager(
         val routing = routing(routingSettings.mode)
         val verboseLogs = routingSettings.verboseDebugLogs
         val ruleSets = ruleSetsFor(routing)
-        // olcRTC has no link to parse — a room and a key address it — so it is
-        // read off the location rather than through LinkParser.
+        val tunEnabled = _tunEnabled.value
+        val userSettings = _socksProxySettings.value
+        val userLogin = SocksLogin.of(userSettings.username, userSettings.password)
+        val backendUsername = "tun"
+        val backendPassword = generateCredential(PASSWORD_LENGTH)
         if (location.kind == LocationKind.Olcrtc) {
             if (!location.isComplete()) {
                 setStatus(VpnStatus.Error("No active location"))
                 addLog("Add a valid location before connecting")
                 return null
             }
-            // The port the user can set belongs to the in-app proxy, which no
-            // longer carries the connection. Inside the extension this is
-            // loopback between two of our own cores, so it is fixed, like Xray's.
-            val settings = _socksProxySettings.value
-                .copy(port = SingBoxConfig.SINGBOX_SOCKS_PORT)
-            // hev-socks5-tunnel fronts olcRTC on this platform and routes
-            // nothing, so the routing choice reaches the engine as its own
-            // direct rules: the same three lists Xray gets on xhttp.
+            val backendPort = if (userSettings.port == SingBoxConfig.SINGBOX_SOCKS_PORT) {
+                SingBoxConfig.SINGBOX_SOCKS_PORT + 2
+            } else {
+                SingBoxConfig.SINGBOX_SOCKS_PORT
+            }
+            val backendSettings = userSettings.copy(
+                port = backendPort,
+                username = backendUsername,
+                password = backendPassword
+            )
             val directRules = if (routing is Routing.BypassRussia) {
                 OlcrtcDirectRules.text()
             } else {
                 OlcrtcDirectRules.NONE
             }
             return IosPacketTunnelStartRequest(
-                // The same credentials olcRTC is about to be started with. It
-                // demands them, and sing-box is the only thing that connects.
-                config = SingBoxConfig.buildTunSocks(
-                    SingBoxConfig.SINGBOX_SOCKS_PORT,
-                    username = settings.username,
-                    password = settings.password,
-                    // olcRTC does relay UDP, but over a lossy video carrier.
-                    // Calls and games want that path; name resolution does
-                    // not, so sing-box answers DNS itself and asks upstream
-                    // over TCP.
-                    upstreamUdpIsLossy = true,
-                    routing = routing,
-                    verboseLogs = verboseLogs,
-                    logOutput = IOS_SING_BOX_LOG
-                ),
+                config = if (tunEnabled) {
+                    SingBoxConfig.buildTunSocks(
+                        backendPort,
+                        username = backendSettings.username,
+                        password = backendSettings.password,
+                        upstreamUdpIsLossy = true,
+                        routing = routing,
+                        verboseLogs = verboseLogs,
+                        logOutput = IOS_SING_BOX_LOG
+                    )
+                } else {
+                    SingBoxConfig.buildSocksChain(
+                        backendPort,
+                        socksPort = userSettings.port,
+                        username = backendSettings.username,
+                        password = backendSettings.password,
+                        routing = routing,
+                        verboseLogs = verboseLogs,
+                        login = null,
+                        listenHost = userSettings.host
+                    )
+                },
                 xrayConfig = null,
                 olcrtc = location.startRequest(
                     locationsRepository.getDeviceIdentity(),
-                    settings,
+                    backendSettings,
                     directRules,
                     subscriptionUrl,
                     OlcrtcDtls.profile(routingSettings.olcrtcChromeDtls)
                 ),
-                ruleSets = ruleSets
+                ruleSets = ruleSets,
+                tunEnabled = tunEnabled,
+                proxyHost = userSettings.host,
+                proxyPort = userSettings.port,
+                proxyUsername = "",
+                proxyPassword = ""
             )
         }
 
@@ -543,26 +544,17 @@ class IosVpnManager(
             return null
         }
 
-        // Same builders Android and desktop use, so a transport gaining a field
-        // reaches iOS without anyone remembering to update a second copy.
-        //
-        // xhttp is the one transport sing-box does not implement, so it runs on
-        // Xray and sing-box becomes the tun front-end for it. Reality and
-        // hysteria2 are native sing-box outbounds with no second core involved.
         val vless = spec as? OutboundSpec.Vless
-        // Demanded by Xray's SOCKS inbound on this path: hev reaches it on
-        // loopback, and so could any other app on the phone (see SocksLogin).
-        // The extension reads the pair back from the config, as it reads the port.
-        val xrayLogin = _socksProxySettings.value.let { SocksLogin.of(it.username, it.password) }
+        val xrayBackendPort = if (userSettings.port == XrayConfig.XRAY_SOCKS_PORT) {
+            XrayConfig.XRAY_SOCKS_PORT + 2
+        } else {
+            XrayConfig.XRAY_SOCKS_PORT
+        }
+        val xrayLogin = SocksLogin(backendUsername, backendPassword)
         val xrayConfig = if (vless != null && vless.transport is TransportSpec.Xhttp) {
-            // Since 1.0.426 the extension puts hev-socks5-tunnel, not sing-box,
-            // in front of Xray on this path (docs/ios-one-go-runtime.md), so
-            // Xray is the only router there: it answers the tun's DNS and
-            // carries the Bypass Russia lists inline. The sing-box config
-            // below is still written for the extension's other arrangement
-            // and is unused on this one.
             XrayConfig.buildXhttp(
                 vless,
+                socksPort = xrayBackendPort,
                 routing = routing,
                 geodata = if (routing is Routing.BypassRussia) XrayGeodata.lists() else null,
                 answersDns = true,
@@ -574,25 +566,56 @@ class IosVpnManager(
         }
         return IosPacketTunnelStartRequest(
             config = if (xrayConfig != null) {
-                SingBoxConfig.buildTunSocks(
-                    XrayConfig.XRAY_SOCKS_PORT,
-                    username = xrayLogin?.username.orEmpty(),
-                    password = xrayLogin?.password.orEmpty(),
-                    routing = routing,
-                    verboseLogs = verboseLogs,
-                    logOutput = IOS_SING_BOX_LOG
-                )
-            } else {
+                if (tunEnabled) {
+                    SingBoxConfig.buildTunSocks(
+                        xrayBackendPort,
+                        username = xrayLogin.username,
+                        password = xrayLogin.password,
+                        routing = routing,
+                        verboseLogs = verboseLogs,
+                        logOutput = IOS_SING_BOX_LOG
+                    )
+                } else {
+                    SingBoxConfig.buildSocksChain(
+                        xrayBackendPort,
+                        socksPort = userSettings.port,
+                        username = xrayLogin.username,
+                        password = xrayLogin.password,
+                        routing = routing,
+                        verboseLogs = verboseLogs,
+                        login = null,
+                        listenHost = userSettings.host
+                    )
+                }
+            } else if (tunEnabled) {
                 SingBoxConfig.buildTun(
                     spec,
                     routing = routing,
                     verboseLogs = verboseLogs,
-                    logOutput = IOS_SING_BOX_LOG
+                    logOutput = IOS_SING_BOX_LOG,
+                    proxyPort = userSettings.port,
+                    proxyLogin = null,
+                    proxyListenHost = userSettings.host
+                )
+            } else {
+                SingBoxConfig.build(
+                    spec,
+                    socksPort = userSettings.port,
+                    routing = routing,
+                    verboseLogs = verboseLogs,
+                    login = null,
+                    serverResolver = DirectDns.Placeholder,
+                    listenHost = userSettings.host
                 )
             },
             xrayConfig = xrayConfig,
             olcrtc = null,
-            ruleSets = ruleSets
+            ruleSets = ruleSets,
+            tunEnabled = tunEnabled,
+            proxyHost = userSettings.host,
+            proxyPort = userSettings.port,
+            proxyUsername = "",
+            proxyPassword = ""
         )
     }
 
@@ -733,7 +756,19 @@ class IosVpnManager(
         val started = timeSource.markNow()
         repeat(UDP_PROBE_ATTEMPTS) {
             if (requestedGeneration != generation || !desiredConnected) return
-            if (TunnelVerifier.verifySystemTunnel(timeoutMs = UDP_PROBE_TIMEOUT_MS) != null) return
+            val verified = if (_tunEnabled.value) {
+                TunnelVerifier.verifySystemTunnel(timeoutMs = UDP_PROBE_TIMEOUT_MS)
+            } else {
+                val settings = _socksProxySettings.value
+                TunnelVerifier.verify(
+                    socksHost = connectHost(settings.host),
+                    socksPort = settings.port,
+                    username = settings.username,
+                    password = settings.password,
+                    timeoutMs = UDP_PROBE_TIMEOUT_MS
+                )
+            }
+            if (verified != null) return
         }
         if (requestedGeneration != generation || !desiredConnected || !udpFailoverArmed) return
 
@@ -1087,10 +1122,19 @@ class IosVpnManager(
     }
 
     private fun setStatus(status: VpnStatus) {
-        // The app's sockets traverse the packet tunnel on iOS. Rebuild the
-        // HTTP pool after a migration so an old connection cannot mask failure.
         if (status is VpnStatus.Connected && channelProbe == null) {
-            channelProbe = org.olcbox.app.net.ChannelLatency.Session(null)
+            val probeProxy = if (_tunEnabled.value) {
+                null
+            } else {
+                val settings = _socksProxySettings.value
+                SubscriptionFetchProxy(
+                    connectHost(settings.host),
+                    settings.port,
+                    settings.username,
+                    settings.password
+                )
+            }
+            channelProbe = org.olcbox.app.net.ChannelLatency.Session(probeProxy)
         } else if (status !is VpnStatus.Connected) {
             channelProbe?.close()
             channelProbe = null
@@ -1145,27 +1189,72 @@ class IosVpnManager(
         )
     }
 
+    fun setTunEnabled(enabled: Boolean): Boolean {
+        val changed = _tunEnabled.value != enabled
+        if (!changed) return false
+        _tunEnabled.value = enabled
+        NSUserDefaults.standardUserDefaults.setBool(enabled, KEY_TUN_ENABLED)
+        return true
+    }
+
+    fun updateSocksProxySettings(username: String, password: String, port: Int) {
+        val next = ApplicationSocksProxySettings(
+            host = OPEN_PROXY_HOST,
+            port = sanitizePort(port),
+            username = "",
+            password = ""
+        )
+        _socksProxySettings.value = next
+        saveSocksProxySettings(next)
+    }
+
+    fun regenerateSocksProxyPassword() {
+        updateSocksProxySettings("", "", _socksProxySettings.value.port)
+    }
+
+    private fun connectHost(host: String): String =
+        if (host == OPEN_PROXY_HOST || host == "::" || host == "[::]" || host.isBlank()) {
+            LOOPBACK_HOST
+        } else {
+            host
+        }
+
+    private fun loadTunEnabled(): Boolean {
+        val defaults = NSUserDefaults.standardUserDefaults
+        return if (defaults.objectForKey(KEY_TUN_ENABLED) == null) {
+            true
+        } else {
+            defaults.boolForKey(KEY_TUN_ENABLED)
+        }
+    }
+
     private fun loadSocksProxySettings(): ApplicationSocksProxySettings {
         val defaults = NSUserDefaults.standardUserDefaults
         val port = sanitizePort(defaults.integerForKey(KEY_SOCKS_PORT).toInt())
-        val username = defaults.stringForKey(KEY_SOCKS_USERNAME)
-            ?.takeIf { it.isNotBlank() }
-            ?: generateCredential(USERNAME_LENGTH)
-        val password = defaults.stringForKey(KEY_SOCKS_PASSWORD)
-            ?.takeIf { it.isNotBlank() }
-            ?: generateCredential(PASSWORD_LENGTH)
+        if (!defaults.boolForKey(KEY_OPEN_PROXY_MIGRATED)) {
+            defaults.setBool(true, KEY_OPEN_PROXY_MIGRATED)
+            return ApplicationSocksProxySettings(
+                host = OPEN_PROXY_HOST,
+                port = port,
+                username = "",
+                password = ""
+            ).also { saveSocksProxySettings(it) }
+        }
         return ApplicationSocksProxySettings(
+            host = OPEN_PROXY_HOST,
             port = port,
-            username = username,
-            password = password
-        ).also { saveSocksProxySettings(it) }
+            username = "",
+            password = ""
+        )
     }
 
     private fun saveSocksProxySettings(settings: ApplicationSocksProxySettings) {
         val defaults = NSUserDefaults.standardUserDefaults
         defaults.setInteger(settings.port.toLong(), KEY_SOCKS_PORT)
-        defaults.setObject(settings.username, KEY_SOCKS_USERNAME)
-        defaults.setObject(settings.password, KEY_SOCKS_PASSWORD)
+        defaults.setObject("", KEY_SOCKS_USERNAME)
+        defaults.setObject("", KEY_SOCKS_PASSWORD)
+        defaults.setBool(true, KEY_SOCKS_AUTH_MIGRATED)
+        defaults.setBool(true, KEY_OPEN_PROXY_MIGRATED)
     }
 
     private fun sanitizePort(port: Int): Int {
@@ -1186,10 +1275,15 @@ class IosVpnManager(
     }
 
     private companion object {
+        const val OPEN_PROXY_HOST = "0.0.0.0"
+        const val LOOPBACK_HOST = "127.0.0.1"
         const val IOS_SING_BOX_LOG = "sing-box.log"
+        const val KEY_TUN_ENABLED = "ios_tun_enabled"
         const val KEY_SOCKS_PORT = "ios_socks_port"
         const val KEY_SOCKS_USERNAME = "ios_socks_username"
         const val KEY_SOCKS_PASSWORD = "ios_socks_password"
+        const val KEY_SOCKS_AUTH_MIGRATED = "ios_socks_auth_migrated"
+        const val KEY_OPEN_PROXY_MIGRATED = "ios_open_proxy_migrated"
         const val USERNAME_LENGTH = 12
         const val PASSWORD_LENGTH = 24
         const val MAX_CREDENTIAL_LENGTH = 64

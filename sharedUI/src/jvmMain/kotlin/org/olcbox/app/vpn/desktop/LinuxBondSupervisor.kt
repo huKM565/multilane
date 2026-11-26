@@ -10,13 +10,14 @@ internal class LinuxBondSupervisor(
     private val runtimeDir: Path,
     private val privilege: (List<String>) -> List<String> = LinuxPrivilege::command,
     private val launcher: (List<String>) -> Process = defaultProcessLauncher,
+    private val singleProcessPool: Boolean = false,
 ) {
     val scriptPath: Path = runtimeDir.resolve("supervisor.sh")
     private var process: Process? = null
 
     init {
-        require(configPaths.size == 4 || configPaths.size == 8 || configPaths.size == 12) {
-            "a Linux bond requires four, eight or twelve configs"
+        require(configPaths.size == 4 || configPaths.size == 8 || configPaths.size == 12 || configPaths.size == 16) {
+            "a Linux bond requires four, eight, twelve or sixteen configs"
         }
         require(configPaths.distinct().size == configPaths.size) { "bond configs must be distinct" }
     }
@@ -24,13 +25,21 @@ internal class LinuxBondSupervisor(
     fun start(): Process {
         check(process == null) { "supervisor is already started" }
         Files.createDirectories(runtimeDir)
-        Files.writeString(scriptPath, SCRIPT)
-        val command = listOf(
-            "bash",
-            scriptPath.toString(),
-            runtimeDir.toString(),
-            binary.toString(),
-        ) + configPaths.map { it.toString() }
+        val command = if (singleProcessPool) {
+            listOf(
+                binary.toString(),
+                "-pool",
+                runtimeDir.toString(),
+            ) + configPaths.map { it.toString() }
+        } else {
+            Files.writeString(scriptPath, SCRIPT)
+            listOf(
+                "bash",
+                scriptPath.toString(),
+                runtimeDir.toString(),
+                binary.toString(),
+            ) + configPaths.map { it.toString() }
+        }
         return launcher(privilege(command)).also { process = it }
     }
 

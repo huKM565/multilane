@@ -344,8 +344,8 @@ func Entries(subURL string, lines []string) []Entry {
 				})
 			}
 		}
-		if len(rooms) < 1 || len(rooms) > 12 {
-			e.Problem = fmt.Sprintf("bond: expected 1..12 rooms, got %d", len(rooms))
+		if len(rooms) < 1 || len(rooms) > 16 {
+			e.Problem = fmt.Sprintf("bond: expected 1..16 rooms, got %d", len(rooms))
 			continue
 		}
 		e.Olcrtc.BondRooms = rooms

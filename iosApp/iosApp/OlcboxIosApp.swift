@@ -835,7 +835,7 @@ final class SwiftPacketTunnelBridge: NSObject, @unchecked Sendable, IosPacketTun
         let answer = SendableCallback(callback: callback)
         // Read here, on the caller's side: the request does not cross into the
         // task below, a Bool does.
-        let killSwitch = request.killSwitch
+        let killSwitch = request.tunEnabled && request.killSwitch
         let onlyIfDown = request.onlyIfDown
 
         // The Simulator has no Network Extension. `saveToPreferences` fails
@@ -874,6 +874,10 @@ final class SwiftPacketTunnelBridge: NSObject, @unchecked Sendable, IosPacketTun
             try Self.handOver(
                 Self.olcrtcParameters(request.olcrtc),
                 to: container.appendingPathComponent("olcrtc.json")
+            )
+            try Self.handOver(
+                Self.proxyParameters(request),
+                to: container.appendingPathComponent("proxy.json")
             )
             // Written or removed, like the two above: a `rules/` left behind
             // by a Bypass Russia connection is harmless to a Global config,
@@ -979,6 +983,18 @@ final class SwiftPacketTunnelBridge: NSObject, @unchecked Sendable, IosPacketTun
         if let url = request.subscriptionUrl, !url.isEmpty { fields["subscriptionUrl"] = url }
         // The DTLS ClientHello profile, left out at the default like the two above.
         if request.dtlsProfile != "off" { fields["dtlsProfile"] = request.dtlsProfile }
+        guard let data = try? JSONSerialization.data(withJSONObject: fields) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func proxyParameters(_ request: IosPacketTunnelStartRequest) -> String? {
+        let fields: [String: Any] = [
+            "tunEnabled": request.tunEnabled,
+            "host": request.proxyHost,
+            "port": Int(request.proxyPort),
+            "username": request.proxyUsername,
+            "password": request.proxyPassword
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: fields) else { return nil }
         return String(data: data, encoding: .utf8)
     }

@@ -114,23 +114,13 @@ data class IosPacketTunnelStartRequest(
      * Swift as an object with a getter per byte.
      */
     val ruleSets: Map<String, String> = emptyMap(),
-    /**
-     * RoutingSettings.killSwitch as it stands at this start. The bridge writes
-     * it into the VPN profile before it starts the tunnel (`includeAllNetworks`
-     * and on-demand), and the extension reads the profile, so one value governs
-     * both halves.
-     */
     val killSwitch: Boolean = false,
-    /**
-     * A tunnel is wanted, and one that is up or on its way up is that tunnel:
-     * the bridge starts one only when there is none. The app's own reconnect
-     * asks like this. What it would start is what iOS, under the kill switch,
-     * is already starting from the same files, and a tunnel that came back
-     * while the request was being put together is not something to stop.
-     * Anything else that starts a tunnel wants its files to be the ones that
-     * run, and replaces what is running.
-     */
-    val onlyIfDown: Boolean = false
+    val onlyIfDown: Boolean = false,
+    val tunEnabled: Boolean = true,
+    val proxyHost: String = "0.0.0.0",
+    val proxyPort: Int = 10808,
+    val proxyUsername: String = "",
+    val proxyPassword: String = ""
 )
 
 /**

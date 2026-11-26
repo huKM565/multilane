@@ -29,6 +29,7 @@ class DesktopLanProxyTest {
 
         val inbound = document["inbounds"]!!.jsonArray.single().jsonObject
         val user = inbound["users"]!!.jsonArray.single().jsonObject
+        assertEquals("mixed", inbound["type"]!!.jsonPrimitive.content)
         assertEquals("192.168.50.10", inbound["listen"]!!.jsonPrimitive.content)
         assertEquals("guest", user["username"]!!.jsonPrimitive.content)
         assertEquals("generated-password", user["password"]!!.jsonPrimitive.content)
@@ -70,6 +71,7 @@ class DesktopLanProxyTest {
         val inbounds = document["inbounds"]!!.jsonArray.map { it.jsonObject }
         val owner = inbounds.single { it["tag"]!!.jsonPrimitive.content == "owner-in" }
         val ownerUser = owner["users"]!!.jsonArray.single().jsonObject
+        assertEquals("mixed", owner["type"]!!.jsonPrimitive.content)
         assertEquals("127.0.0.1", owner["listen"]!!.jsonPrimitive.content)
         assertEquals("18888", owner["listen_port"]!!.jsonPrimitive.content)
         assertEquals("owner-user", ownerUser["username"]!!.jsonPrimitive.content)

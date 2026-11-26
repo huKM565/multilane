@@ -18,12 +18,26 @@ class SingBoxConfigTest {
     private fun inbounds(json: String) = Json.parseToJsonElement(json).jsonObject["inbounds"]!!.jsonArray
     private fun outbound(json: String) = Json.parseToJsonElement(json).jsonObject["outbounds"]!!.jsonArray[0].jsonObject
 
-    @Test fun socksInboundOnGivenPort() {
+    @Test fun mixedInboundOnGivenPort() {
         val json = SingBoxConfig.build(vless(), socksPort = 10809)
         val inb = inbounds(json)[0].jsonObject
-        assertEquals("socks", inb["type"]!!.jsonPrimitive.content)
+        assertEquals("mixed", inb["type"]!!.jsonPrimitive.content)
         assertEquals(10809, inb["listen_port"]!!.jsonPrimitive.content.toInt())
         assertEquals("127.0.0.1", inb["listen"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun mixedInboundSupportsWildcardListenHostWithoutAuth() {
+        val proxyJson = SingBoxConfig.build(vless(), socksPort = 10808, listenHost = "0.0.0.0")
+        val proxyInb = inbounds(proxyJson)[0].jsonObject
+        assertEquals("mixed", proxyInb["type"]!!.jsonPrimitive.content)
+        assertEquals("0.0.0.0", proxyInb["listen"]!!.jsonPrimitive.content)
+        assertNull(proxyInb["users"])
+
+        val tunJson = SingBoxConfig.buildTun(vless(), proxyPort = 10808, proxyListenHost = "0.0.0.0")
+        val tunMixedInb = inbounds(tunJson).map { it.jsonObject }.single { it["tag"]!!.jsonPrimitive.content == "proxy-in" }
+        assertEquals("mixed", tunMixedInb["type"]!!.jsonPrimitive.content)
+        assertEquals("0.0.0.0", tunMixedInb["listen"]!!.jsonPrimitive.content)
+        assertNull(tunMixedInb["users"])
     }
 
     // --- iOS: the core owns the tun -------------------------------------
@@ -1232,5 +1246,43 @@ class SingBoxConfigTest {
         assertEquals("debug", str(detailed, "level"))
         assertEquals("sing-box.log", str(detailed, "output"))
         assertEquals(true, detailed["timestamp"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test fun renderSupportsOptionalAuthenticatedTunInboundAlongsideMixedInbound() {
+        val json = SingBoxConfig.build(
+            vless(),
+            socksPort = 10808,
+            login = null,
+            tunPort = 10820,
+            tunLogin = SocksLogin("hev", "hevpw")
+        )
+        val inb = inbounds(json).map { it.jsonObject }
+        assertEquals(2, inb.size)
+        assertEquals("mixed", inb[0]["type"]!!.jsonPrimitive.content)
+        assertEquals(10808, inb[0]["listen_port"]!!.jsonPrimitive.content.toInt())
+        assertNull(inb[0]["users"])
+        assertEquals("socks", inb[1]["type"]!!.jsonPrimitive.content)
+        assertEquals("tun-proxy-in", inb[1]["tag"]!!.jsonPrimitive.content)
+        assertEquals(10820, inb[1]["listen_port"]!!.jsonPrimitive.content.toInt())
+        val tunUser = inb[1]["users"]!!.jsonArray.single().jsonObject
+        assertEquals("hev", tunUser["username"]!!.jsonPrimitive.content)
+        assertEquals("hevpw", tunUser["password"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun tunConfigSupportsOptionalMixedProxyInbound() {
+        val json = SingBoxConfig.buildTun(
+            vless(),
+            proxyPort = 10808,
+            proxyLogin = SocksLogin("u", "p")
+        )
+        val inb = inbounds(json).map { it.jsonObject }
+        assertEquals(2, inb.size)
+        assertEquals("tun", inb[0]["type"]!!.jsonPrimitive.content)
+        assertEquals("mixed", inb[1]["type"]!!.jsonPrimitive.content)
+        assertEquals("proxy-in", inb[1]["tag"]!!.jsonPrimitive.content)
+        assertEquals(10808, inb[1]["listen_port"]!!.jsonPrimitive.content.toInt())
+        val user = inb[1]["users"]!!.jsonArray.single().jsonObject
+        assertEquals("u", user["username"]!!.jsonPrimitive.content)
+        assertEquals("p", user["password"]!!.jsonPrimitive.content)
     }
 }

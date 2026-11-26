@@ -12,9 +12,11 @@ class OlcRtcBondTest {
         assertFailsWith<IllegalArgumentException> { OlcRtcBond(fakes(3)) }
         assertFailsWith<IllegalArgumentException> { OlcRtcBond(fakes(5)) }
         assertFailsWith<IllegalArgumentException> { OlcRtcBond(fakes(13)) }
+        assertFailsWith<IllegalArgumentException> { OlcRtcBond(fakes(17)) }
         OlcRtcBond(fakes(4))
         OlcRtcBond(fakes(8))
         OlcRtcBond(fakes(12))
+        OlcRtcBond(fakes(16))
     }
 
     @Test

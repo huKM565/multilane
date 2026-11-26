@@ -70,4 +70,29 @@ class DesktopSocksProxySettingsStoreTest {
         assertTrue(DesktopSocksProxySettings(killSwitch = true).normalized().killSwitch)
         assertFalse(DesktopSocksProxySettings().normalized().killSwitch)
     }
+
+    @Test
+    fun openProxyMigrationResetsHostAndCredentialsOnceWhileKeepingPortAndKillSwitch() {
+        val file = newStoreFile()
+        val store = JvmDesktopSocksProxySettingsStore(file)
+        val initial = DesktopSocksProxySettings(
+            host = "127.0.0.1",
+            port = 10815,
+            username = "olcbox-a",
+            password = "secret",
+            shareOnLan = true,
+            killSwitch = true
+        )
+
+        val migrated = store.migrateToOpenProxyIfNeeded(initial)
+        assertEquals("0.0.0.0", migrated.host)
+        assertEquals(10815, migrated.port)
+        assertEquals("", migrated.username)
+        assertEquals("", migrated.password)
+        assertFalse(migrated.shareOnLan)
+        assertTrue(migrated.killSwitch)
+
+        val custom = migrated.copy(host = "127.0.0.1", port = 10820)
+        assertEquals(custom, store.migrateToOpenProxyIfNeeded(custom))
+    }
 }

@@ -133,7 +133,7 @@ data class LocationConfig(
         val link = bondVlessLink ?: return bondedRoomConfigs.isEmpty()
         val paths = bondedPaths()
         val spec = LinkParser.parse(link) as? OutboundSpec.Vless ?: return false
-        return paths.size in setOf(4, 8, 12) &&
+        return paths.size in setOf(4, 8, 12, 16) &&
             paths.all { path ->
                 path.room.isNotBlank() &&
                     path.key.isNotBlank() &&

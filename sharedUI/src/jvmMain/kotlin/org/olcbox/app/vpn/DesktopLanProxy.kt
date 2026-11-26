@@ -223,7 +223,7 @@ internal class DesktopLanProxy(private val onOutput: (String) -> Unit) {
             ).jsonObject
             return JsonObject(base + ("inbounds" to buildJsonArray {
                 addJsonObject {
-                    put("type", "socks")
+                    put("type", "mixed")
                     put("tag", "lan-in")
                     put("listen", host)
                     put("listen_port", port)
@@ -235,7 +235,7 @@ internal class DesktopLanProxy(private val onOutput: (String) -> Unit) {
                     })
                 }
                 if (ownershipPort != null) addJsonObject {
-                    put("type", "socks")
+                    put("type", "mixed")
                     put("tag", "owner-in")
                     put("listen", "127.0.0.1")
                     put("listen_port", ownershipPort)
