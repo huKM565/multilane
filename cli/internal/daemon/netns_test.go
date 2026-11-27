@@ -64,6 +64,9 @@ func topology(t *testing.T) netns.NsHandle {
 	}
 	runtime.UnlockOSThread()
 
+	for _, f := range []string{"/proc/sys/net/ipv6/conf/all/accept_dad", "/proc/sys/net/ipv6/conf/default/accept_dad"} {
+		_ = os.WriteFile(f, []byte("0"), 0o644)
+	}
 	veth := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: "gl-veth0"}, PeerName: "gl-veth1"}
 	if err := netlink.LinkAdd(veth); err != nil {
 		t.Fatal(err)
