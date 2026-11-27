@@ -1285,4 +1285,25 @@ class SingBoxConfigTest {
         assertEquals("u", user["username"]!!.jsonPrimitive.content)
         assertEquals("p", user["password"]!!.jsonPrimitive.content)
     }
+
+    @Test fun socksChainRejectsQuicWhenRequested() {
+        val globalJson = SingBoxConfig.buildSocksChain(10808, rejectQuic = true)
+        val globalRules = obj(globalJson)["route"]!!.jsonObject["rules"]!!.jsonArray.map { it.jsonObject }
+        assertEquals("sniff", str(globalRules[0], "action"))
+        assertEquals("quic", str(globalRules[1], "protocol"))
+        assertEquals("reject", str(globalRules[1], "action"))
+        assertEquals("udp", str(globalRules[2], "network"))
+        assertEquals(443, globalRules[2]["port"]!!.jsonPrimitive.content.toInt())
+        assertEquals("reject", str(globalRules[2], "action"))
+
+        val bypassRouting = bypass()
+        val bypassJson = SingBoxConfig.buildSocksChain(10808, routing = bypassRouting, rejectQuic = true)
+        val bypassRules = routeRules(bypassJson)
+        assertTrue(bypassRules.any { it["protocol"]?.jsonPrimitive?.content == "quic" && str(it, "action") == "reject" })
+        assertTrue(bypassRules.any { it["network"]?.jsonPrimitive?.content == "udp" && it["port"]?.jsonPrimitive?.content == "443" && str(it, "action") == "reject" })
+
+        val without = SingBoxConfig.buildSocksChain(10808, routing = bypassRouting, rejectQuic = false)
+        val withoutRules = routeRules(without)
+        assertTrue(withoutRules.none { it["protocol"]?.jsonPrimitive?.content == "quic" })
+    }
 }

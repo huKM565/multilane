@@ -325,3 +325,19 @@ func TestBuildConfigLocalDNSOverride(t *testing.T) {
 		t.Fatalf("unexpected DNS config:\n%s", cfg)
 	}
 }
+
+func TestBuildConfigRejectQuic(t *testing.T) {
+	p := base(ModeTun)
+	p.RejectQuic = true
+	cfg, err := BuildConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(cfg); err != nil {
+		t.Fatalf("sing-box refused reject-quic config: %v\n%s", err, cfg)
+	}
+	s := string(cfg)
+	if !strings.Contains(s, `"protocol":"quic"`) || !strings.Contains(s, `"port":443`) {
+		t.Fatalf("expected QUIC reject rules in config:\n%s", s)
+	}
+}

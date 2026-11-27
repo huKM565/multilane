@@ -193,8 +193,9 @@ object SingBoxConfig {
         tunPort: Int? = null,
         tunLogin: SocksLogin? = null,
         listenHost: String = "127.0.0.1",
+        rejectQuic: Boolean = false,
     ): String = render(
-        socksPort, routing, verboseLogs, login, verifyPort = verifyPort, tunPort = tunPort, tunLogin = tunLogin, listenHost = listenHost
+        socksPort, routing, verboseLogs, login, verifyPort = verifyPort, tunPort = tunPort, tunLogin = tunLogin, listenHost = listenHost, rejectQuic = rejectQuic
     ) {
         addSocksOutbound(upstreamPort, username, password)
     }
@@ -706,6 +707,7 @@ object SingBoxConfig {
         tunPort: Int? = null,
         tunLogin: SocksLogin? = null,
         listenHost: String = "127.0.0.1",
+        rejectQuic: Boolean = false,
         outbounds: JsonArrayBuilder.() -> Unit
     ): String {
         val bypass = routing as? Routing.RuleBased
@@ -730,10 +732,16 @@ object SingBoxConfig {
                 outbounds()
                 if (bypass != null) addDirectOutbound()
             }
-            if (bypass != null) putBypassRoute(bypass, autoDetectInterface, hasVerifyInbound)
-            if (bypass == null && (resolver != null || autoDetectInterface)) putJsonObject("route") {
+            if (bypass != null) putBypassRoute(bypass, autoDetectInterface, hasVerifyInbound, rejectQuic)
+            if (bypass == null && (resolver != null || autoDetectInterface || rejectQuic)) putJsonObject("route") {
                 if (resolver != null) put("default_domain_resolver", "dns-direct")
                 if (autoDetectInterface) put("auto_detect_interface", true)
+                if (rejectQuic) {
+                    putJsonArray("rules") {
+                        addJsonObject { put("action", "sniff") }
+                        addQuicRejectRules()
+                    }
+                }
             }
         }
         return obj.toString()
@@ -1031,10 +1039,16 @@ object SingBoxConfig {
      * network underneath. Tunnel-bound names never reach it; sing-box sends
      * those to the server unresolved.
      */
+    private fun JsonArrayBuilder.addQuicRejectRules() {
+        addJsonObject { put("protocol", "quic"); put("action", "reject") }
+        addJsonObject { put("network", "udp"); put("port", 443); put("action", "reject") }
+    }
+
     private fun JsonObjectBuilder.putBypassRoute(
         bypass: Routing.RuleBased,
         autoDetectInterface: Boolean = false,
         hasVerifyInbound: Boolean = false,
+        rejectQuic: Boolean = false,
     ) {
         putJsonObject("route") {
             if (autoDetectInterface) put("auto_detect_interface", true)
@@ -1048,6 +1062,7 @@ object SingBoxConfig {
                         put("outbound", "out")
                     }
                 }
+                if (rejectQuic) addQuicRejectRules()
                 addPolicyRouteRules(bypass)
             }
             put("final", finalOutbound(bypass))

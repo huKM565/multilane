@@ -1343,6 +1343,7 @@ class OlcboxVpnService : VpnService() {
                         verboseLogs = verboseDebugLogs,
                         login = login,
                         verifyPort = verifyPort,
+                        rejectQuic = bondPacketMuxActive,
                     )
                 )
                 label = if (bondPacketMuxActive) "sing-box front + bondmux/olcRTC bond" else "sing-box front + Xray/olcRTC bond"

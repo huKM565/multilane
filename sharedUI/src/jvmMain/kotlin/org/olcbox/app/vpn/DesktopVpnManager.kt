@@ -1966,6 +1966,7 @@ class DesktopVpnManager(
                     verboseLogs = verboseLogs,
                     login = frontLogin,
                     listenHost = frontListenHost,
+                    rejectQuic = bondPacketMux,
                 )
             )
             if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && isBondCarrierRunning() }) {
@@ -2069,6 +2070,7 @@ class DesktopVpnManager(
                     verboseLogs = line.verboseLogs,
                     login = frontLogin,
                     listenHost = line.listenHost,
+                    rejectQuic = true,
                 )
             )
             if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && bondMuxCore.isRunning() }) {

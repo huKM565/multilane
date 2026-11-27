@@ -570,7 +570,9 @@ func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string, packet
 		stopEngine(eng)
 		return nil, err
 	}
-	front, err := d.deps.StartFront(ctx, d.frontParams(mode, up, probeAddr, probeUser, probePass))
+	fp := d.frontParams(mode, up, probeAddr, probeUser, probePass)
+	fp.RejectQuic = packetBond && e.Olcrtc != nil && e.Olcrtc.IsBonded()
+	front, err := d.deps.StartFront(ctx, fp)
 	if err != nil {
 		if ownRules {
 			_ = d.deps.Routes.Clear()

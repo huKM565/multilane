@@ -61,6 +61,7 @@ type FrontParams struct {
 	DirectRulesFile string
 	TunnelRulesFile string
 	LocalDNS        string
+	RejectQuic      bool
 }
 
 var privateRanges = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -239,6 +240,12 @@ func BuildConfig(p FrontParams) ([]byte, error) {
 	}
 	if hasTunProxy {
 		routeRules = append(routeRules, map[string]any{"inbound": []string{"tun-proxy-in"}, "outbound": "tunnel"})
+	}
+	if p.RejectQuic {
+		routeRules = append(routeRules,
+			map[string]any{"protocol": "quic", "action": "reject"},
+			map[string]any{"network": "udp", "port": 443, "action": "reject"},
+		)
 	}
 	routeRules = append(routeRules, directRules.routeRules("direct")...)
 	routeRules = append(routeRules, tunnelRules.routeRules("tunnel")...)
