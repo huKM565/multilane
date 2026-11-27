@@ -1475,13 +1475,18 @@ class OlcboxVpnService : VpnService() {
         rt.setStreamWindow(1L shl 20)
         rt.setSessionWindow(12L shl 20)
         bondMuxRuntime = rt
-        withContext(Dispatchers.IO) {
-            rt.start(MOBILE_READY_TIMEOUT_MS)
-        }
-        if (!waitForSocksPortOpen(listenPort, MOBILE_READY_TIMEOUT_MS) || !rt.isRunning) {
-            addLog(rt.diagnostics())
+        bondPacketMuxActive = true
+        try {
+            withContext(Dispatchers.IO) {
+                rt.start(MOBILE_READY_TIMEOUT_MS)
+            }
+            if (!waitForSocksPortOpen(listenPort, MOBILE_READY_TIMEOUT_MS) || !rt.isRunning) {
+                addLog(rt.diagnostics())
+                error("bondmux/olcRTC bond SOCKS not ready on $listenPort")
+            }
+        } catch (error: Throwable) {
             stopMobileBondMux()
-            error("bondmux/olcRTC bond SOCKS not ready on $listenPort")
+            throw error
         }
     }
 

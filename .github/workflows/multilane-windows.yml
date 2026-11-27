@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: huKM565/olcrtc
-          ref: 2f0ab38d37f1b1f1357b0075ecadb6b41a4ed62c
+          ref: 9daa3dc6f530cd1bee62ac15a051089f1aa1b607
           path: olcrtc
           submodules: recursive
 

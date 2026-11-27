@@ -183,6 +183,7 @@ class DesktopBondIntegrationTest {
         assertTrue("isBondCarrierRunning()" in manager, "DesktopVpnManager missing isBondCarrierRunning()")
         assertTrue("isBondCarrierRunning()" in refreshBody, "refreshDesktopBond does not use isBondCarrierRunning()")
         assertTrue("if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return true" in refreshBody)
+        assertTrue("if (bondPacketMuxActive) return restartDesktopBondMux(line, bond)" in refreshBody)
         assertTrue("bondMuxCore.stopNow()" in stopCoresBody, "stopDesktopCores does not stop bondMuxCore")
     }
 

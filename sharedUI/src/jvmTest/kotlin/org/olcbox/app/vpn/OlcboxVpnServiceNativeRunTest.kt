@@ -239,5 +239,9 @@ class OlcboxVpnServiceNativeRunTest {
         assertTrue("isBondCarrierRunning()" in transportBody, "isActiveTransportRunning does not use isBondCarrierRunning()")
         assertTrue("if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return@withLock" in refreshBody)
         assertTrue("stopMobileBondMux()" in stopCoresBody, "stopCoreProcesses does not stop bondMux")
+        val muxBody = member("startMobileBondMux")
+        val stopPos = muxBody.indexOf("stopMobileBondMux()")
+        val flagPos = muxBody.indexOf("bondPacketMuxActive = true")
+        assertTrue(stopPos >= 0 && flagPos > stopPos, "startMobileBondMux must set bondPacketMuxActive = true AFTER stopMobileBondMux()")
     }
 }

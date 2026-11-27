@@ -2020,12 +2020,67 @@ class DesktopVpnManager(
 
         desktopBalancedRooms = activeRooms
         if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return true
+        if (bondPacketMuxActive) return restartDesktopBondMux(line, bond)
         val fullPoolRunning = desktopBalancedPlan?.roomPorts == bond.rooms.map { it.port } &&
             activeRooms.all { it in desktopMeasuredRooms } &&
             singBoxCore.isRunning() &&
             isBondCarrierRunning()
         if (fullPoolRunning) return true
         return rebalanceDesktopBond(line, bond, activeRooms)
+    }
+
+    private suspend fun restartDesktopBondMux(
+        line: SessionLine,
+        bond: DesktopOlcRtcBond,
+    ): Boolean {
+        return try {
+            addLog("Desktop bondmux core stopped; restarting bondmux + sing-box")
+            val spec = LinkParser.parse(line.location.bondVlessLink!!) as? OutboundSpec.Vless
+                ?: error("bond carrier is not VLESS")
+            val frontPort = line.frontPort ?: line.corePort
+            val xrayPort = allocateBondPort(excludingPort = frontPort)
+            val login = SocksLogin.of(line.socksSettings.username, line.socksSettings.password)
+            singBoxCore.stopNow()
+            bondMuxCore.stopNow()
+            bondMuxCore.start(
+                org.olcbox.app.net.DesktopBondMuxController.buildConfigJson(
+                    listenAddr = "127.0.0.1:$xrayPort",
+                    socksUser = login?.username.orEmpty(),
+                    socksPass = login?.password.orEmpty(),
+                    targetAddr = "${spec.host}:${spec.port}",
+                    uuid = spec.uuid,
+                    roomPorts = bond.rooms.map { it.port },
+                    roomUser = line.socksSettings.username,
+                    roomPass = line.socksSettings.password,
+                    verboseLogs = line.verboseLogs,
+                )
+            )
+            if (!waitForCoreSocks(xrayPort, timeoutMs = 15_000L) { bondMuxCore.isRunning() }) {
+                error("restarted bondmux SOCKS not ready on $xrayPort")
+            }
+            val frontLogin = if (line.desktopMode == DesktopMode.SystemProxy) null else login
+            singBoxCore.start(
+                SingBoxConfig.buildSocksChain(
+                    xrayPort,
+                    socksPort = frontPort,
+                    username = login?.username.orEmpty(),
+                    password = login?.password.orEmpty(),
+                    routing = line.coreRouting,
+                    verboseLogs = line.verboseLogs,
+                    login = frontLogin,
+                    listenHost = line.listenHost,
+                )
+            )
+            if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && bondMuxCore.isRunning() }) {
+                error("restarted sing-box front not ready on $frontPort")
+            }
+            bondPacketMuxActive = true
+            activeCorePort = frontPort
+            true
+        } catch (error: Throwable) {
+            addLog("Desktop bondmux restart failed: ${error.message ?: error}")
+            false
+        }
     }
 
     private suspend fun recoverDesktopBondRooms(bond: DesktopOlcRtcBond): List<Int> {

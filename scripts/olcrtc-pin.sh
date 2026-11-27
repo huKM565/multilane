@@ -32,7 +32,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/gate-api.sh
 . "${here}/gate-api.sh"
 
-repo="${OLCRTC_REPOSITORY:-ghostlane-project/olcrtc}"
+repo="${OLCRTC_REPOSITORY:-huKM565/olcrtc}"
 branch="${OLCRTC_BRANCH:-proofkit}"
 
 die() {
