@@ -359,8 +359,9 @@ func (d *Daemon) connect(ctx context.Context, req ipc.Request) ipc.Response {
 		return ipc.Fail("no_subscription", msg)
 	}
 	sel := store.Selection{Subscription: req.Subscription, Selector: req.Selector, Mode: mode, KillSwitch: req.KillSwitch, PacketBond: req.PacketBond}
+	selCopy := sel
 	d.mu.Lock()
-	d.cfg.Selection = &sel
+	d.cfg.Selection = &selCopy
 	cfg := d.cfg.Clone()
 	d.mu.Unlock()
 	if err := d.saveConfig(cfg); err != nil {
