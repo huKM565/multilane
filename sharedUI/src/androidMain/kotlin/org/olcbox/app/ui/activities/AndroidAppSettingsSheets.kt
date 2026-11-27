@@ -244,6 +244,7 @@ import org.olcbox.app.data.model.RoutingMode
 import org.olcbox.app.data.model.RoutingSettings
 import org.olcbox.app.data.model.SubscriptionSettings
 import org.olcbox.app.ui.components.SubscriptionSettingsScreen
+import org.olcbox.app.ui.components.BondPacketMuxRow
 import org.olcbox.app.ui.components.OlcrtcHandshakeRow
 import org.olcbox.app.ui.components.RoutingSettingsScreen
 import org.olcbox.app.ui.components.hubSummary
@@ -411,7 +412,8 @@ internal fun AppSettingsSheet(
                         routingSettings = routingSettings,
                         onRoutingClick = { route = AppSettingsRoute.Routing },
                         onSplitTunnelingClick = { route = AppSettingsRoute.SplitTunneling },
-                        onChromeDtlsChanged = { onRoutingSettingsChanged(routingSettings.copy(olcrtcChromeDtls = it)) }
+                        onChromeDtlsChanged = { onRoutingSettingsChanged(routingSettings.copy(olcrtcChromeDtls = it)) },
+                        onBondPacketMuxChanged = { onRoutingSettingsChanged(routingSettings.copy(bondPacketMux = it)) }
                     )
 
                     AppSettingsRoute.ConnectionMode -> ConnectionModeSettingsContent(
@@ -589,7 +591,8 @@ private fun ConnectionSettingsContent(
     routingSettings: RoutingSettings,
     onRoutingClick: () -> Unit,
     onSplitTunnelingClick: () -> Unit,
-    onChromeDtlsChanged: (Boolean) -> Unit
+    onChromeDtlsChanged: (Boolean) -> Unit,
+    onBondPacketMuxChanged: (Boolean) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -685,6 +688,11 @@ private fun ConnectionSettingsContent(
                 checked = routingSettings.olcrtcChromeDtls,
                 enabled = enabled,
                 onCheckedChange = onChromeDtlsChanged
+            )
+            BondPacketMuxRow(
+                checked = routingSettings.bondPacketMux,
+                enabled = enabled,
+                onCheckedChange = onBondPacketMuxChanged
             )
         }
     }

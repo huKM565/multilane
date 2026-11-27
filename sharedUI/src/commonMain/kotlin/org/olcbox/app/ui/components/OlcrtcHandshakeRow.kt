@@ -1,6 +1,8 @@
 package org.olcbox.app.ui.components
 
 import multiplatform_app.sharedui.generated.resources.Res
+import multiplatform_app.sharedui.generated.resources.bond_packet_mux
+import multiplatform_app.sharedui.generated.resources.bond_packet_mux_note
 import multiplatform_app.sharedui.generated.resources.olcrtc_chrome_dtls
 import multiplatform_app.sharedui.generated.resources.olcrtc_chrome_dtls_note
 import org.jetbrains.compose.resources.stringResource
@@ -43,6 +45,21 @@ fun OlcrtcHandshakeRow(
     ConnectionSwitchRow(
         title = stringResource(Res.string.olcrtc_chrome_dtls),
         note = stringResource(Res.string.olcrtc_chrome_dtls_note),
+        checked = checked,
+        enabled = enabled,
+        onCheckedChange = onCheckedChange
+    )
+}
+
+@Composable
+fun BondPacketMuxRow(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    ConnectionSwitchRow(
+        title = stringResource(Res.string.bond_packet_mux),
+        note = stringResource(Res.string.bond_packet_mux_note),
         checked = checked,
         enabled = enabled,
         onCheckedChange = onCheckedChange

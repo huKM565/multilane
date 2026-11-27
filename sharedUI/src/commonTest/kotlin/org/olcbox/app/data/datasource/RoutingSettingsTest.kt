@@ -167,6 +167,21 @@ class RoutingSettingsTest {
         // It asks for no rules: a kill switch alone leaves routing Global.
         assertEquals(false, RoutingSettings(killSwitch = true).needsRules)
     }
+
+    @Test fun theBondPacketMuxIsOffUntilSwitchedOnAndComesBackUnderItsName() = runTest {
+        assertEquals(false, Json.decodeFromString(RoutingSettings.serializer(), """{"mode":"global"}""").bondPacketMux)
+        assertEquals(false, LocationsRepositoryImpl(MemoryLocationsDataSource()).getRoutingSettings().bondPacketMux)
+
+        val repository = LocationsRepositoryImpl(MemoryLocationsDataSource())
+        repository.saveRoutingSettings(RoutingSettings(bondPacketMux = true))
+        assertEquals(true, repository.getRoutingSettings().bondPacketMux)
+        assertEquals(
+            "true",
+            Json.encodeToJsonElement(RoutingSettings.serializer(), RoutingSettings(bondPacketMux = true))
+                .jsonObject["bond_packet_mux"]!!.jsonPrimitive.content
+        )
+        assertEquals(false, RoutingSettings(bondPacketMux = true).needsRules)
+    }
 }
 
 /** The bundle in memory and nothing else; the repository's other collaborators keep their defaults. */

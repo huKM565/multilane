@@ -106,6 +106,7 @@ class LineSupervisionTest {
             routing.copy(mode = RoutingMode.BlockedOnly),
             routing.copy(verboseDebugLogs = true),
             routing.copy(olcrtcChromeDtls = true),
+            routing.copy(bondPacketMux = true),
             routing.copy(directRules = emptyList()),
             routing.copy(tunnelRules = listOf("example.net"))
         )

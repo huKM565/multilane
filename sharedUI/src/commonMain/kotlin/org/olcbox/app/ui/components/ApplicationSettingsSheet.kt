@@ -446,6 +446,7 @@ fun ApplicationSettingsSheet(
                     killSwitch = killSwitch
                         ?: routingSettings.killSwitch.takeIf { currentUpdatePlatform().os == "ios" },
                     chromeDtls = routingSettings.olcrtcChromeDtls,
+                    bondPacketMux = routingSettings.bondPacketMux,
                     onConnectionModeClick = { route = SharedSettingsRoute.ConnectionMode },
                     onSocksProxyClick = { route = SharedSettingsRoute.SocksProxy },
                     onTunnelDaemonClick = onTunnelDaemonClick,
@@ -457,6 +458,7 @@ fun ApplicationSettingsSheet(
                         }
                     },
                     onChromeDtlsChanged = { onRoutingSettingsChanged(routingSettings.copy(olcrtcChromeDtls = it)) },
+                    onBondPacketMuxChanged = { onRoutingSettingsChanged(routingSettings.copy(bondPacketMux = it)) },
                     onBack = { route = SharedSettingsRoute.Hub }
                 )
 
@@ -663,11 +665,13 @@ private fun SharedConnectionSettingsContent(
     tunnelDaemonSummary: String?,
     killSwitch: Boolean?,
     chromeDtls: Boolean,
+    bondPacketMux: Boolean,
     onConnectionModeClick: () -> Unit,
     onSocksProxyClick: () -> Unit,
     onTunnelDaemonClick: () -> Unit,
     onKillSwitchChanged: (Boolean) -> Unit,
     onChromeDtlsChanged: (Boolean) -> Unit,
+    onBondPacketMuxChanged: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -740,6 +744,13 @@ private fun SharedConnectionSettingsContent(
             }
 
             OlcrtcHandshakeRow(checked = chromeDtls, enabled = true, onCheckedChange = onChromeDtlsChanged)
+            if (currentUpdatePlatform().os != "ios") {
+                BondPacketMuxRow(
+                    checked = bondPacketMux,
+                    enabled = true,
+                    onCheckedChange = onBondPacketMuxChanged
+                )
+            }
 
             details
                 .filterNot { (title, _) -> title.equals("Mode", ignoreCase = true) }

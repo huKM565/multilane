@@ -109,7 +109,9 @@ data class RoutingSettings(
      * persisted copy, read at every start.
      */
     @SerialName("kill_switch")
-    val killSwitch: Boolean = false
+    val killSwitch: Boolean = false,
+    @SerialName("bond_packet_mux")
+    val bondPacketMux: Boolean = false
 ) {
     /** Whether anything here asks for rules at all: a mode other than Global, or a rule of your own. */
     val needsRules: Boolean
