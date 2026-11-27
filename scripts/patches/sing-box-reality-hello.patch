@@ -91,7 +91,7 @@ diff -ruN a/common/tls/reality_client.go b/common/tls/reality_client.go
 diff -ruN a/common/tls/reality_ghostlane.go b/common/tls/reality_ghostlane.go
 --- a/common/tls/reality_ghostlane.go
 +++ b/common/tls/reality_ghostlane.go
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,44 @@
 +//go:build with_utls
 +
 +package tls
@@ -109,19 +109,30 @@ diff -ruN a/common/tls/reality_ghostlane.go b/common/tls/reality_ghostlane.go
 +// X25519MLKEM768 key share ahead of any X25519 share: the order REALITY
 +// servers since XTLS/REALITY 8cdf7bf accept. GREASE shares are skipped.
 +func realityHelloOffersHybridFirst(uConn *utls.UConn) bool {
++	hasCurve := false
++	hybridKeyShareFirst := false
 +	for _, extension := range uConn.Extensions {
-+		keyShares, ok := extension.(*utls.KeyShareExtension)
-+		if !ok {
-+			continue
-+		}
-+		for _, share := range keyShares.KeyShares {
-+			switch share.Group {
-+			case utls.X25519MLKEM768:
-+				return true
-+			case utls.X25519:
-+				return false
++		switch ext := extension.(type) {
++		case *utls.SupportedCurvesExtension:
++			for _, curve := range ext.Curves {
++				if curve == utls.X25519MLKEM768 {
++					hasCurve = true
++					break
++				}
++			}
++		case *utls.KeyShareExtension:
++			for _, share := range ext.KeyShares {
++				switch share.Group {
++				case utls.X25519MLKEM768:
++					hybridKeyShareFirst = true
++				case utls.X25519:
++					return false
++				}
++				if hybridKeyShareFirst {
++					break
++				}
 +			}
 +		}
 +	}
-+	return false
++	return hasCurve && hybridKeyShareFirst
 +}
