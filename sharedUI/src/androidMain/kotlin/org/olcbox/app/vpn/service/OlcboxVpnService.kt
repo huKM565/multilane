@@ -58,6 +58,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import mobile.BondMuxRuntime
 import mobile.LogWriter
 import mobile.Mobile
 import mobile.OccupancyListener
@@ -261,6 +262,8 @@ class OlcboxVpnService : VpnService() {
     private var bondBalancedPlan: BondCorePlan? = null
     private var bondMeasuredRooms: Set<Int> = emptySet()
     private var bondLocation: LocationConfig? = null
+    private var bondMuxRuntime: BondMuxRuntime? = null
+    private var bondPacketMuxActive = false
 
     private data class StartOptions(
         val connectionMode: AndroidConnectionMode,
@@ -1307,21 +1310,27 @@ class OlcboxVpnService : VpnService() {
             if (bondCorePlan != null) {
                 val bondSpec = spec as? OutboundSpec.Vless ?: error("bond carrier is not VLESS")
                 val xrayPort = freeLoopbackPort()
-                xrayCore.start(
-                    XrayConfig.buildVlessBond(
-                        bondSpec,
-                        roomPorts = bondCorePlan.roomPorts,
-                        roomUsername = socksUsername,
-                        roomPassword = socksPassword,
-                        socksPort = xrayPort,
-                        verboseLogs = verboseDebugLogs,
-                        login = login,
-                        adaptive = bondCorePlan.scheduling,
+                if (routingSettings.bondPacketMux) {
+                    bondPacketMuxActive = true
+                    startMobileBondMux(bondSpec, bondCorePlan.roomPorts, xrayPort, login)
+                } else {
+                    bondPacketMuxActive = false
+                    xrayCore.start(
+                        XrayConfig.buildVlessBond(
+                            bondSpec,
+                            roomPorts = bondCorePlan.roomPorts,
+                            roomUsername = socksUsername,
+                            roomPassword = socksPassword,
+                            socksPort = xrayPort,
+                            verboseLogs = verboseDebugLogs,
+                            login = login,
+                            adaptive = bondCorePlan.scheduling,
+                        )
                     )
-                )
-                if (!waitForSocksPortOpen(xrayPort, MOBILE_READY_TIMEOUT_MS) || !xrayCore.isRunning()) {
-                    addLog(xrayCore.diagnostics())
-                    error("Xray/olcRTC bond SOCKS not ready on $xrayPort")
+                    if (!waitForSocksPortOpen(xrayPort, MOBILE_READY_TIMEOUT_MS) || !xrayCore.isRunning()) {
+                        addLog(xrayCore.diagnostics())
+                        error("Xray/olcRTC bond SOCKS not ready on $xrayPort")
+                    }
                 }
                 verifyPort = blockedOnlyVerifyPort
                 singBoxCore.start(
@@ -1336,10 +1345,13 @@ class OlcboxVpnService : VpnService() {
                         verifyPort = verifyPort,
                     )
                 )
-                label = "sing-box front + Xray/olcRTC bond"
-                diagnose = { singBoxCore.diagnostics() + "\n" + xrayCore.diagnostics() }
+                label = if (bondPacketMuxActive) "sing-box front + bondmux/olcRTC bond" else "sing-box front + Xray/olcRTC bond"
+                diagnose = {
+                    singBoxCore.diagnostics() + "\n" +
+                        if (bondPacketMuxActive) bondMuxRuntime?.diagnostics().orEmpty() else xrayCore.diagnostics()
+                }
                 alive = {
-                    olcRtcBond?.isRunning() == true && singBoxCore.isRunning() && xrayCore.isRunning()
+                    olcRtcBond?.isRunning() == true && singBoxCore.isRunning() && isBondCarrierRunning()
                 }
             } else if (spec is OutboundSpec.Vless && spec.transport is TransportSpec.Xhttp) {
                 if (fronted) {
@@ -1436,9 +1448,50 @@ class OlcboxVpnService : VpnService() {
     private fun stopCoreProcesses() {
         singBoxCore.stopNow()
         xrayCore.stopNow()
+        stopMobileBondMux()
         activeCorePort = null
         activeVerifyPort = null
         activeCoreLogin = null
+    }
+
+    private fun isBondCarrierRunning(): Boolean =
+        if (bondPacketMuxActive) bondMuxRuntime?.isRunning == true else xrayCore.isRunning()
+
+    private suspend fun startMobileBondMux(
+        bondSpec: OutboundSpec.Vless,
+        roomPorts: List<Int>,
+        listenPort: Int,
+        login: SocksLogin?,
+    ) {
+        stopMobileBondMux()
+        val rt = Mobile.newBondMux()
+        rt.setListenHost(AndroidSocksProxySettings.DEFAULT_HOST)
+        rt.setListenPort(listenPort.toLong())
+        rt.setSocksCredentials(login?.username.orEmpty(), login?.password.orEmpty())
+        rt.setTarget("${bondSpec.host}:${bondSpec.port}")
+        rt.setUUID(bondSpec.uuid)
+        rt.setRoomPortsCSV(roomPorts.joinToString(","))
+        rt.setRoomCredentials(socksUsername, socksPassword)
+        rt.setStreamWindow(1L shl 20)
+        rt.setSessionWindow(12L shl 20)
+        bondMuxRuntime = rt
+        withContext(Dispatchers.IO) {
+            rt.start(MOBILE_READY_TIMEOUT_MS)
+        }
+        if (!waitForSocksPortOpen(listenPort, MOBILE_READY_TIMEOUT_MS) || !rt.isRunning) {
+            addLog(rt.diagnostics())
+            stopMobileBondMux()
+            error("bondmux/olcRTC bond SOCKS not ready on $listenPort")
+        }
+    }
+
+    private fun stopMobileBondMux() {
+        val rt = bondMuxRuntime
+        bondMuxRuntime = null
+        bondPacketMuxActive = false
+        if (rt != null) {
+            runCatching { rt.stop(MOBILE_STOP_TIMEOUT_MS) }
+        }
     }
 
     /**
@@ -2079,10 +2132,11 @@ class OlcboxVpnService : VpnService() {
         tunnelMutex.withLock {
             if (!current()) return@withLock
             bondBalancedRooms = activeRooms
+            if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return@withLock
             val fullPoolRunning = bondBalancedPlan?.roomPorts == bondRoomPorts &&
                 activeRooms.all { it in bondMeasuredRooms } &&
                 singBoxCore.isRunning() &&
-                xrayCore.isRunning()
+                isBondCarrierRunning()
             if (fullPoolRunning) return@withLock
             rebalanceMobileBond(location, activeRooms)
         }
@@ -2185,6 +2239,7 @@ class OlcboxVpnService : VpnService() {
      * an empty string that reads like a core with nothing to report.
      */
     private fun activeCoreDiagnostics(): String = when {
+        bondPacketMuxActive && bondMuxRuntime != null -> bondMuxRuntime?.diagnostics().orEmpty()
         xrayCore.isRunning() -> xrayCore.diagnostics()
         singBoxCore.isRunning() -> singBoxCore.diagnostics()
         else -> "no core process is running"
@@ -2656,7 +2711,7 @@ class OlcboxVpnService : VpnService() {
      */
     private fun isActiveTransportRunning(): Boolean =
         if (olcRtcBond != null) {
-            olcRtcBond?.isRunning() == true && singBoxCore.isRunning() && xrayCore.isRunning()
+            olcRtcBond?.isRunning() == true && singBoxCore.isRunning() && isBondCarrierRunning()
         } else if (activeCorePort != null) {
             singBoxCore.isRunning() || xrayCore.isRunning()
         } else {

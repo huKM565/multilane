@@ -172,6 +172,20 @@ class DesktopBondIntegrationTest {
         }
     }
 
+    @Test
+    fun packetMuxModeRunsBondMuxBehindSingBoxWithUnifiedWatchdog() {
+        val startBody = section("private suspend fun startDesktopBond", "private suspend fun refreshDesktopBond")
+        val refreshBody = section("private suspend fun refreshDesktopBond", "private suspend fun recoverDesktopBondRooms")
+        val stopCoresBody = section("private fun stopDesktopCores", "private fun CoreShape.alive")
+
+        assertTrue("bondMuxCore.start(" in startBody, "startDesktopBond does not start bondMuxCore")
+        assertTrue("bondPacketMux" in startBody, "startDesktopBond does not branch on bondPacketMux")
+        assertTrue("isBondCarrierRunning()" in manager, "DesktopVpnManager missing isBondCarrierRunning()")
+        assertTrue("isBondCarrierRunning()" in refreshBody, "refreshDesktopBond does not use isBondCarrierRunning()")
+        assertTrue("if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return true" in refreshBody)
+        assertTrue("bondMuxCore.stopNow()" in stopCoresBody, "stopDesktopCores does not stop bondMuxCore")
+    }
+
     private fun section(startMarker: String, endMarker: String): String {
         val start = manager.indexOf(startMarker)
         val end = manager.indexOf(endMarker, start)

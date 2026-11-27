@@ -320,6 +320,10 @@ class DesktopVpnManager(
     private val xrayCore = org.olcbox.app.net.DesktopXrayController(
         onOutput = { line -> addLog(line) }
     )
+    private val bondMuxCore = org.olcbox.app.net.DesktopBondMuxController(
+        onOutput = { line -> addLog(line) }
+    )
+    private var bondPacketMuxActive = false
     private var activeCorePort: Int? = null
 
     /**
@@ -937,6 +941,7 @@ class DesktopVpnManager(
                             verboseLogs = verboseLogs,
                             frontListenHost = frontListenHost,
                             preferredFrontPort = socksSettings.port.takeIf { directProxyFront },
+                            bondPacketMux = routingSettings.bondPacketMux,
                         )
                         effectiveSocksPort = frontPort!!
                         activeCorePort = frontPort
@@ -1417,7 +1422,7 @@ class DesktopVpnManager(
         // ProcessHandle.Info.command() may be empty on Windows. Exact process
         // paths are useful when present; known resolved binaries are the safe
         // fallback for the process bypass rule.
-        val running = listOfNotNull(process, singBoxCore.runningProcess(), xrayCore.runningProcess())
+        val running = listOfNotNull(process, singBoxCore.runningProcess(), xrayCore.runningProcess(), bondMuxCore.runningProcess())
             .mapNotNull { it.info().command().orElse(null) }
         val bundled = buildList<Path> {
             runCatching { DesktopNativeAssets.resolveSingBoxBinary() }.getOrNull()?.let { add(it) }
@@ -1752,6 +1757,7 @@ class DesktopVpnManager(
         verboseLogs: Boolean,
         frontListenHost: String = PacServer.LOCAL_SOCKS_HOST,
         preferredFrontPort: Int? = null,
+        bondPacketMux: Boolean = false,
     ): Int {
         val config = location.normalized()
         val planned = planBondPaths(config, ::allocateBondPort)
@@ -1899,31 +1905,55 @@ class DesktopVpnManager(
             desktopBalancedRooms = bond.activeIndexes()
             setDesktopBondRooms(desktopBalancedRooms)
 
-            val activePlan = planFullPoolAdaptiveBondCore(
-                desktopBalancedRooms,
-                bond.rooms.map { it.port },
-                HttpBondRoomProbe(socksSettings.username, socksSettings.password),
-            )
-            bondPlanLogLines(activePlan).forEach(::addLog)
             val spec = LinkParser.parse(config.bondVlessLink!!) as? OutboundSpec.Vless
                 ?: error("bond carrier is not VLESS")
             val frontPort = preferredFrontPort ?: allocateCorePort(excludingPort = excludingPort)
             val xrayPort = allocateBondPort(excludingPort = frontPort)
             val login = SocksLogin.of(socksSettings.username, socksSettings.password)
-            xrayCore.start(
-                XrayConfig.buildVlessBond(
-                    spec,
-                    roomPorts = activePlan.roomPorts,
-                    roomUsername = socksSettings.username,
-                    roomPassword = socksSettings.password,
-                    socksPort = xrayPort,
-                    verboseLogs = verboseLogs,
-                    login = login,
-                    adaptive = activePlan.scheduling,
+            val measuredPlan: BondCorePlan?
+            if (bondPacketMux) {
+                measuredPlan = null
+                bondPacketMuxActive = true
+                bondMuxCore.start(
+                    org.olcbox.app.net.DesktopBondMuxController.buildConfigJson(
+                        listenAddr = "127.0.0.1:$xrayPort",
+                        socksUser = login?.username.orEmpty(),
+                        socksPass = login?.password.orEmpty(),
+                        targetAddr = "${spec.host}:${spec.port}",
+                        uuid = spec.uuid,
+                        roomPorts = bond.rooms.map { it.port },
+                        roomUser = socksSettings.username,
+                        roomPass = socksSettings.password,
+                        verboseLogs = verboseLogs,
+                    )
                 )
-            )
-            if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
-                error("bonded Xray SOCKS not ready on $xrayPort")
+                if (!waitForCoreSocks(xrayPort, timeoutMs = 15_000L) { bondMuxCore.isRunning() }) {
+                    error("bonded bondmux SOCKS not ready on $xrayPort")
+                }
+            } else {
+                bondPacketMuxActive = false
+                val activePlan = planFullPoolAdaptiveBondCore(
+                    desktopBalancedRooms,
+                    bond.rooms.map { it.port },
+                    HttpBondRoomProbe(socksSettings.username, socksSettings.password),
+                )
+                bondPlanLogLines(activePlan).forEach(::addLog)
+                measuredPlan = activePlan
+                xrayCore.start(
+                    XrayConfig.buildVlessBond(
+                        spec,
+                        roomPorts = activePlan.roomPorts,
+                        roomUsername = socksSettings.username,
+                        roomPassword = socksSettings.password,
+                        socksPort = xrayPort,
+                        verboseLogs = verboseLogs,
+                        login = login,
+                        adaptive = activePlan.scheduling,
+                    )
+                )
+                if (!waitForCoreSocks(xrayPort) { xrayCore.isRunning() }) {
+                    error("bonded Xray SOCKS not ready on $xrayPort")
+                }
             }
             val frontLogin = if (desktopMode == DesktopMode.SystemProxy) null else login
             singBoxCore.start(
@@ -1938,13 +1968,13 @@ class DesktopVpnManager(
                     listenHost = frontListenHost,
                 )
             )
-            if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && xrayCore.isRunning() }) {
+            if (!waitForCoreSocks(frontPort) { singBoxCore.isRunning() && isBondCarrierRunning() }) {
                 error("bonded sing-box front not ready on $frontPort")
             }
             activeCorePort = frontPort
-            desktopBalancedPlan = activePlan
+            desktopBalancedPlan = measuredPlan
             desktopMeasuredRooms = desktopBalancedRooms.toSet()
-            addLog("Desktop olcRTC bond x${bond.activeIndexes().size}/${paths.size} ready; sing-box front on $frontListenHost:$frontPort")
+            addLog("Desktop olcRTC bond x${bond.activeIndexes().size}/${paths.size} ready${if (bondPacketMux) " (bondmux)" else ""}; sing-box front on $frontListenHost:$frontPort")
             return frontPort
         } catch (error: Throwable) {
             if (desktopOlcRtcBond == null) {
@@ -1989,10 +2019,11 @@ class DesktopVpnManager(
         }
 
         desktopBalancedRooms = activeRooms
+        if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return true
         val fullPoolRunning = desktopBalancedPlan?.roomPorts == bond.rooms.map { it.port } &&
             activeRooms.all { it in desktopMeasuredRooms } &&
             singBoxCore.isRunning() &&
-            xrayCore.isRunning()
+            isBondCarrierRunning()
         if (fullPoolRunning) return true
         return rebalanceDesktopBond(line, bond, activeRooms)
     }
@@ -2120,8 +2151,11 @@ class DesktopVpnManager(
         error("Unable to allocate loopback bond port")
     }
 
+    private fun isBondCarrierRunning(): Boolean =
+        if (bondPacketMuxActive) bondMuxCore.isRunning() else xrayCore.isRunning()
+
     private fun isDesktopBondAlive(): Boolean =
-        desktopOlcRtcBond?.isRunning() == true && singBoxCore.isRunning() && xrayCore.isRunning()
+        desktopOlcRtcBond?.isRunning() == true && singBoxCore.isRunning() && isBondCarrierRunning()
 
     private fun isOlcRtcTransportAlive(): Boolean =
         desktopOlcRtcBond?.isRunning() ?: (process?.isAlive == true)
@@ -2341,6 +2375,8 @@ class DesktopVpnManager(
     private fun stopDesktopCores() {
         singBoxCore.stopNow()
         xrayCore.stopNow()
+        bondMuxCore.stopNow()
+        bondPacketMuxActive = false
         activeCorePort = null
     }
 
@@ -3022,7 +3058,7 @@ class DesktopVpnManager(
                                 if (afterRefresh == DesktopBondWatchDecision.Continue) return@withLock
 
                                 val refreshError = refresh.exceptionOrNull()
-                                val exitCode = singBoxCore.exitCodeOrNull() ?: xrayCore.exitCodeOrNull()
+                                val exitCode = singBoxCore.exitCodeOrNull() ?: bondMuxCore.exitCodeOrNull() ?: xrayCore.exitCodeOrNull()
                                 handleUnexpectedProcessExit(
                                     which = DeadProcess.Core,
                                     logMessage = refreshError?.let { "bonded olcRTC refresh failed: ${it.message ?: it}" }
@@ -3048,7 +3084,7 @@ class DesktopVpnManager(
                 scope.launch {
                     mutex.withLock {
                         if (requestGeneration != generation || sessionLine !== line) return@withLock
-                        val exitCode = singBoxCore.exitCodeOrNull() ?: xrayCore.exitCodeOrNull()
+                        val exitCode = singBoxCore.exitCodeOrNull() ?: bondMuxCore.exitCodeOrNull() ?: xrayCore.exitCodeOrNull()
                         handleUnexpectedProcessExit(
                             which = DeadProcess.Core,
                             logMessage = "core process exited unexpectedly" +

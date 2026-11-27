@@ -225,4 +225,19 @@ class OlcboxVpnServiceNativeRunTest {
         assertTrue(transportStops[0] < startJoin, "cleanup joins the cancelled start before its final transport cleanup")
         assertTrue(startJoin < transportStops[1], "cleanup has no final mobile transport cleanup after the cancelled start ended")
     }
+
+    @Test
+    fun packetMuxModeUsesMobileBondMuxWithUnifiedWatchdogAndNoCoreRestart() {
+        val coreBody = member("startCore")
+        val refreshBody = member("refreshMobileBond")
+        val stopCoresBody = member("stopCoreProcesses")
+        val transportBody = member("isActiveTransportRunning")
+
+        assertTrue("routingSettings.bondPacketMux" in coreBody, "startCore does not branch on routingSettings.bondPacketMux")
+        assertTrue("startMobileBondMux(" in coreBody, "startCore does not invoke startMobileBondMux")
+        assertTrue("isBondCarrierRunning()" in coreBody, "startCore alive lambda does not use isBondCarrierRunning()")
+        assertTrue("isBondCarrierRunning()" in transportBody, "isActiveTransportRunning does not use isBondCarrierRunning()")
+        assertTrue("if (bondPacketMuxActive && singBoxCore.isRunning() && isBondCarrierRunning()) return@withLock" in refreshBody)
+        assertTrue("stopMobileBondMux()" in stopCoresBody, "stopCoreProcesses does not stop bondMux")
+    }
 }
