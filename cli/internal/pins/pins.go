@@ -22,7 +22,7 @@ type Pins struct {
 var (
 	enginePinRe   = regexp.MustCompile(`(?m)^OLCRTC_VERSION="\$\{OLCRTC_VERSION:-([^}]+)\}"`)
 	singboxRepoRe = regexp.MustCompile(`SINGBOX_VERSION:\s*"([^"]+)"`)
-	replaceRe     = regexp.MustCompile(`(?m)^replace github\.com/openlibrecommunity/olcrtc => github\.com/ghostlane-project/olcrtc (\S+)`)
+	replaceRe     = regexp.MustCompile(`(?m)^replace github\.com/openlibrecommunity/olcrtc => github\.com/(?:ghostlane-project|huKM565)/olcrtc (\S+)`)
 	singboxModRe  = regexp.MustCompile(`(?m)^\s*github\.com/sagernet/sing-box (\S+)`)
 	xrayModRe     = regexp.MustCompile(`(?m)^\s*github\.com/xtls/xray-core (\S+)`)
 	singboxPinsRe = regexp.MustCompile(`(?m)^SINGBOX_VERSION="\$\{SINGBOX_VERSION:-([^}]+)\}"`)

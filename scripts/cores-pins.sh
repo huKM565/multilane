@@ -237,7 +237,7 @@ LIBXRAY_VERSION="${LIBXRAY_VERSION:-v1.260711.0}"
 # it, so until the next re-pin a release passes only with gate: skip. Pin commits
 # on `proofkit`: GitHub drops a commit no branch reaches, and every checkout of
 # it then fails.
-OLCRTC_VERSION="${OLCRTC_VERSION:-v0.0.0-20261109222247-2d4266af3947}"
+OLCRTC_VERSION="${OLCRTC_VERSION:-v0.0.0-20261127051050-2f0ab38d37f1}"
 
 # Bumped when the framework's *shape* changes while its pins do not — adding the
 # macOS slice being the first case. The versions alone cannot express that: they

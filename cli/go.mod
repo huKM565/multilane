@@ -2,7 +2,7 @@ module github.com/ghostlane-project/ghostlane/cli
 
 go 1.26.3
 
-replace github.com/openlibrecommunity/olcrtc => github.com/ghostlane-project/olcrtc v0.0.0-20261109222247-2d4266af3947
+replace github.com/openlibrecommunity/olcrtc => github.com/huKM565/olcrtc v0.0.0-20261127051050-2f0ab38d37f1
 
 // sing-box v1.13.14 with scripts/patches/sing-box-reality-hello.patch, the tree
 // every Ghostlane build compiles: `make singbox-src` writes it
@@ -11,7 +11,7 @@ replace github.com/openlibrecommunity/olcrtc => github.com/ghostlane-project/olc
 replace github.com/sagernet/sing-box => ./.sing-box-patched
 
 require (
-	github.com/openlibrecommunity/olcrtc v0.0.0-20261109222247-2d4266af3947
+	github.com/openlibrecommunity/olcrtc v0.0.0-20261127051050-2f0ab38d37f1
 	github.com/sagernet/sing v0.8.11
 	github.com/sagernet/sing-box v1.13.14
 	github.com/vishvananda/netlink v1.3.1
@@ -22,6 +22,8 @@ require (
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/coder/websocket v1.8.14
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
@@ -45,7 +47,6 @@ require (
 	github.com/caddyserver/zerossl v0.1.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.4 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-iptables v0.7.1-0.20240112124308-65c67c9f46e6 // indirect
 	github.com/cretz/bine v0.2.0 // indirect
 	github.com/database64128/netx-go v0.1.1 // indirect

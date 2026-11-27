@@ -54,15 +54,10 @@ jobs:
       - name: Checkout pinned olcRTC
         uses: actions/checkout@v7
         with:
-          repository: ghostlane-project/olcrtc
-          ref: 2d4266af3947f4d9940efafb0d5aabb6207f6659
+          repository: huKM565/olcrtc
+          ref: 2f0ab38d37f1b1f1357b0075ecadb6b41a4ed62c
           path: olcrtc
           submodules: recursive
-
-      - name: Apply MultiLane olcRTC occupancy patch
-        shell: bash
-        working-directory: olcrtc
-        run: git apply ../multilane/scripts/patches/olcrtc-room-occupancy.patch
 
       - name: Setup JDK
         uses: actions/setup-java@v6
