@@ -74,10 +74,11 @@ func (d *Daemon) status() *ipc.Status {
 			st.RoomsUp, st.RoomsTotal = br.BondRooms()
 		}
 		st.Since = d.since.UTC().Format(time.RFC3339)
-		if d.cur.mode == "proxy" {
+		switch d.cur.mode {
+		case "proxy":
 			addr := net.JoinHostPort(d.cfg.Proxy.Listen, strconv.Itoa(d.cfg.Proxy.Port))
 			st.Proxy = &ipc.ProxyView{Socks: addr, HTTP: addr}
-		} else if d.cur.mode == "tun" {
+		case "tun":
 			if addr, _, _ := d.tunProxyConfig(d.cfg.Proxy); addr != "" {
 				st.Proxy = &ipc.ProxyView{Socks: addr, HTTP: addr}
 			}

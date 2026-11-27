@@ -243,9 +243,7 @@ func Entries(subURL string, lines []string) []Entry {
 					prev.Country = CountryOf(val)
 				}
 			case "rooms":
-				for _, tok := range splitRoomTokens(val) {
-					draft.extraRoomIDs = append(draft.extraRoomIDs, tok)
-				}
+				draft.extraRoomIDs = append(draft.extraRoomIDs, splitRoomTokens(val)...)
 			case "bond-room":
 				parsed, err := ParseOlcrtc(val)
 				if err != nil {
@@ -269,11 +267,12 @@ func Entries(subURL string, lines []string) []Entry {
 				}
 			case "bond-vless":
 				v, err := ParseVless(val)
-				if err != nil {
+				switch {
+				case err != nil:
 					prev.Problem = fmt.Sprintf("bond-vless: %v", err)
-				} else if !v.Plain || v.Transport.Kind != "tcp" {
+				case !v.Plain || v.Transport.Kind != "tcp":
 					prev.Problem = "bond-vless: requires plain TCP VLESS"
-				} else {
+				default:
 					prev.Olcrtc.BondVless = v
 				}
 			}

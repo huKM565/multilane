@@ -85,14 +85,19 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: ghostlane-project/olcrtc
+          repository: huKM565/olcrtc
           ref: proofkit
           path: olcrtc
           submodules: recursive
       - name: Apply IlyukhaLine olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
-        run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+        run: |
+          if [ -f internal/engine/jitsi/occupancy.go ]; then
+            echo "Occupancy patch already present in olcrtc checkout, skipping."
+          else
+            git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+          fi
       - name: Setup JDK
         uses: actions/setup-java@v6
         with:
@@ -172,7 +177,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: ghostlane-project/olcrtc
+          repository: huKM565/olcrtc
           ref: proofkit
           path: olcrtc
           submodules: recursive
@@ -180,7 +185,12 @@ jobs:
       - name: Apply IlyukhaLine olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
-        run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+        run: |
+          if [ -f internal/engine/jitsi/occupancy.go ]; then
+            echo "Occupancy patch already present in olcrtc checkout, skipping."
+          else
+            git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+          fi
 
       - name: Setup JDK
         uses: actions/setup-java@v6
@@ -384,7 +394,7 @@ jobs:
       - name: Checkout olcrtc
         uses: actions/checkout@v7
         with:
-          repository: ghostlane-project/olcrtc
+          repository: huKM565/olcrtc
           ref: proofkit
           path: olcrtc
           submodules: recursive
@@ -392,7 +402,12 @@ jobs:
       - name: Apply IlyukhaLine olcRTC occupancy patch
         shell: bash
         working-directory: olcrtc
-        run: git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+        run: |
+          if [ -f internal/engine/jitsi/occupancy.go ]; then
+            echo "Occupancy patch already present in olcrtc checkout, skipping."
+          else
+            git apply ../olcbox/scripts/patches/olcrtc-room-occupancy.patch
+          fi
 
       - name: Setup JDK
         uses: actions/setup-java@v6

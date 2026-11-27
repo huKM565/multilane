@@ -61,7 +61,7 @@ PIN_REV = "0123456789ab"
 PIN_VERSION = f"v0.0.0-{PIN_TIME}-{PIN_REV}"
 PIN_SHA = "0123456789abcdef0123456789abcdef01234567"
 PIN_DATE = "2026-01-02T03:04:05Z"
-ENGINE = "/repos/ghostlane-project/olcrtc"
+ENGINE = "/repos/huKM565/olcrtc"
 
 # gate-resolve.sh's two lists: every provider a leg can be named for, and the
 # legs of a run that names none.

@@ -294,13 +294,16 @@ func probeXMPPMUCOccupancy(
 	} else {
 		wsURL += "?room=" + url.QueryEscape(roomName)
 	}
-	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+	ws, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"xmpp"},
 		HTTPClient:   httpClient,
 		HTTPHeader: http.Header{
 			"Origin": {"https://" + originHost},
 		},
 	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return -1, err
 	}
