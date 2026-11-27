@@ -38,6 +38,7 @@ func runDaemon(args []string, stderr io.Writer) int {
 	selector := fs.String("connect", "", "connect this selector at start (containers)")
 	mode := fs.String("mode", "proxy", "tun | proxy, with --connect")
 	killSwitch := fs.Bool("kill-switch", false, "with --mode tun: refuse traffic outside the tunnel while no line is up")
+	packetBond := fs.Bool("packet-bond", false, "experimental: split and shuffle stream chunks across bonded rooms (bondmux)")
 	probeURL := fs.String("probe-url", "http://cp.cloudflare.com/generate_204", "liveness probe through the tunnel")
 	directRules := fs.String("direct-rules", defaultDirectRulesPath(), "optional direct rules file (domain:/full:/CIDR/.srs per line)")
 	tunnelRules := fs.String("tunnel-rules", "/etc/multilane-tunnel.rules", "optional Podkop-style selective tunnel rules file (only listed domains/CIDRs/.srs go into tunnel, rest direct)")
@@ -83,7 +84,7 @@ func runDaemon(args []string, stderr io.Writer) int {
 		changed = true
 	}
 	if *selector != "" {
-		cfg.Selection = &store.Selection{Subscription: *subscription, Selector: *selector, Mode: *mode, KillSwitch: *killSwitch}
+		cfg.Selection = &store.Selection{Subscription: *subscription, Selector: *selector, Mode: *mode, KillSwitch: *killSwitch, PacketBond: *packetBond}
 		changed = true
 	}
 	if changed {

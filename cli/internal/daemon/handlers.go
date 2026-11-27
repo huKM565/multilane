@@ -63,7 +63,7 @@ func (d *Daemon) status() *ipc.Status {
 	defer d.mu.Unlock()
 	st := &ipc.Status{State: d.state, LastError: d.lastErr}
 	if d.sel != nil {
-		st.Mode, st.Selector, st.KillSwitch = d.sel.Mode, d.sel.Selector, d.sel.KillSwitch
+		st.Mode, st.Selector, st.KillSwitch, st.PacketBond = d.sel.Mode, d.sel.Selector, d.sel.KillSwitch, d.sel.PacketBond
 	}
 	switch {
 	case d.cur != nil:
@@ -357,7 +357,7 @@ func (d *Daemon) connect(ctx context.Context, req ipc.Request) ipc.Response {
 		}
 		return ipc.Fail("no_subscription", msg)
 	}
-	sel := store.Selection{Subscription: req.Subscription, Selector: req.Selector, Mode: mode, KillSwitch: req.KillSwitch}
+	sel := store.Selection{Subscription: req.Subscription, Selector: req.Selector, Mode: mode, KillSwitch: req.KillSwitch, PacketBond: req.PacketBond}
 	d.mu.Lock()
 	d.cfg.Selection = &sel
 	cfg := d.cfg.Clone()

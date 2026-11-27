@@ -241,6 +241,7 @@ func client(cmd string, args []string, stdout, stderr io.Writer) int {
 	tun := fs.Bool("tun", false, "route the whole machine (needs the service's CAP_NET_ADMIN)")
 	proxyMode := fs.Bool("proxy", false, "local SOCKS5/HTTP proxy only")
 	killSwitch := fs.Bool("kill-switch", false, "with --tun: refuse traffic outside the tunnel while no line is up")
+	packetBond := fs.Bool("packet-bond", false, "experimental: split and shuffle stream chunks across bonded rooms (bondmux)")
 	sub := fs.String("subscription", "", "restrict to one subscription")
 	// flags may follow the positional argument: `connect DE --tun`
 	var positional []string
@@ -268,6 +269,7 @@ func client(cmd string, args []string, stdout, stderr io.Writer) int {
 			req.Subscription = positional[0]
 		default:
 			req.Selector = positional[0]
+			req.PacketBond = *packetBond
 			switch {
 			case *tun && *proxyMode:
 				fmt.Fprintln(stderr, "pick one of --tun and --proxy")
@@ -335,6 +337,9 @@ func printStatus(w io.Writer, st *ipc.Status) {
 		mode := st.Mode + " mode"
 		if st.KillSwitch {
 			mode += ", kill switch on"
+		}
+		if st.PacketBond {
+			mode += ", packet bond on"
 		}
 		fmt.Fprintf(w, "Selection: %s (%s)\n", st.Selector, mode)
 	}

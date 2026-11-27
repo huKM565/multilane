@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ type Params struct {
 	Line             links.OlcrtcLine
 	DNS              string
 	DeviceIDPath     string
+	PacketBond       bool
 	ReadyTimeout     time.Duration
 	RecoveryInterval time.Duration
 	SettleGrace      time.Duration
@@ -228,19 +231,39 @@ launchXray:
 		return nil, fmt.Errorf("olcrtc bond: %w", lastErr)
 	}
 
-	xr, err := startBondXray(ctx, xray.BondParams{
-		Line:          *p.Line.BondVless,
-		RoomPorts:     ports,
-		RoomUser:      roomUser,
-		RoomPass:      roomPass,
-		SocksHost:     "127.0.0.1",
-		SocksPort:     xrayPort,
-		SocksUser:     xrayUser,
-		SocksPass:     xrayPass,
-		FallbackIndex: firstReady,
-	})
+	var xr xrayEngine
+	if p.PacketBond {
+		xr, err = startBondMux(ctx, bondMuxParams{
+			TargetAddr:   net.JoinHostPort(p.Line.BondVless.Host, strconv.Itoa(p.Line.BondVless.Port)),
+			UUID:         p.Line.BondVless.UUID,
+			RoomPorts:    ports,
+			RoomUser:     roomUser,
+			RoomPass:     roomPass,
+			SocksHost:    "127.0.0.1",
+			SocksPort:    xrayPort,
+			SocksUser:    xrayUser,
+			SocksPass:    xrayPass,
+			ReadyTimeout: readyTimeout,
+			Logf:         logf,
+		})
+	} else {
+		xr, err = startBondXray(ctx, xray.BondParams{
+			Line:          *p.Line.BondVless,
+			RoomPorts:     ports,
+			RoomUser:      roomUser,
+			RoomPass:      roomPass,
+			SocksHost:     "127.0.0.1",
+			SocksPort:     xrayPort,
+			SocksUser:     xrayUser,
+			SocksPass:     xrayPass,
+			FallbackIndex: firstReady,
+		})
+	}
 	if err != nil {
 		drainAndStop(len(rooms) - completed)
+		if p.PacketBond {
+			return nil, fmt.Errorf("olcrtc bond bondmux: %w", err)
+		}
 		return nil, fmt.Errorf("olcrtc bond xray: %w", err)
 	}
 

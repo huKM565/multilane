@@ -12,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ghostlane-project/ghostlane/cli/internal/crypt1"
 	"github.com/ghostlane-project/ghostlane/cli/internal/crypt1/crypt1test"
+	"github.com/ghostlane-project/ghostlane/cli/internal/engine/bond"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/olcrtc"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/singbox"
 	"github.com/ghostlane-project/ghostlane/cli/internal/engine/xray"
@@ -1774,5 +1776,39 @@ func TestTunModeExposesMixedProxyByDefault(t *testing.T) {
 	fp := d.frontParams("tun", singbox.Upstream{}, "127.0.0.1:1", "u", "p")
 	if fp.TunProxyListen != "" {
 		t.Fatalf("explicit opt-out failed: %q", fp.TunProxyListen)
+	}
+}
+
+func TestDaemonConnectPropagatesPacketBond(t *testing.T) {
+	w, d, _ := newWorld(t)
+	key := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	w.body = []byte(
+		"olcrtc://jitsi?datachannel@https://m1.example/r1#" + key + "$Польша — Mamba 4x\n" +
+			"##group: Польша\n" +
+			"##rooms: https://m2.example/r2 https://m3.example/r3 https://m4.example/r4\n" +
+			"##bond-vless: vless://2b9618c0-76da-4f8d-bf1f-3270d30ff6a3@127.0.0.1:10000?security=none&encryption=none#VLESS\n",
+	)
+	var gotPacketBond atomic.Bool
+	d.deps.StartBond = func(_ context.Context, p bond.Params) (Engine, error) {
+		gotPacketBond.Store(p.PacketBond)
+		return &fakeEngine{w: w, addr: "127.0.0.1:29000", name: "bond"}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = d.Run(ctx) }()
+
+	if resp := d.Handle(ctx, ipc.Request{Verb: "add", Source: listURL}); !resp.OK {
+		t.Fatalf("add: %+v", resp)
+	}
+	if resp := d.Handle(ctx, ipc.Request{Verb: "connect", Selector: "1", Mode: "proxy", PacketBond: true}); !resp.OK {
+		t.Fatalf("connect: %+v", resp)
+	}
+	st := waitState(t, d, "up")
+	if !gotPacketBond.Load() || !st.PacketBond {
+		t.Fatalf("expected PacketBond propagated to StartBond (%v) and status (%v)", gotPacketBond.Load(), st.PacketBond)
+	}
+	cfg, err := store.Load(d.deps.ConfigPath)
+	if err != nil || cfg.Selection == nil || !cfg.Selection.PacketBond {
+		t.Fatalf("expected PacketBond persisted in store.Selection, got %+v err=%v", cfg, err)
 	}
 }

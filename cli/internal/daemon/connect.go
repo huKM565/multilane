@@ -245,7 +245,7 @@ func (d *Daemon) connectLoop(ctx context.Context, sel store.Selection) {
 			}
 			lastTried = cand.ID
 			d.setState("connecting", "", &cand)
-			l, err := d.bringUp(ctx, cand, sel.Mode)
+			l, err := d.bringUp(ctx, cand, sel.Mode, sel.PacketBond)
 			if err != nil {
 				d.logf("%s: %v", cand.Label, err)
 				d.setState("connecting", err.Error(), &cand)
@@ -487,7 +487,7 @@ func (d *Daemon) frontParams(mode string, up singbox.Upstream, probeAddr, probeU
 //
 // Every kind is then confirmed once more through the front's probe inbound,
 // which supervise keeps probing.
-func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string) (*live, error) {
+func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string, packetBond bool) (*live, error) {
 	var eng Engine
 	var up singbox.Upstream
 	switch {
@@ -503,6 +503,7 @@ func (d *Daemon) bringUp(ctx context.Context, e links.Entry, mode string) (*live
 			Line:         *e.Olcrtc,
 			DNS:          olcrtc.HostResolvers(d.deps.ResolvConf),
 			DeviceIDPath: d.deviceIDPath(),
+			PacketBond:   packetBond,
 			ReadyTimeout: d.deps.ReadyTimeout,
 			Logf:         d.logf,
 		})

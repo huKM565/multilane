@@ -162,3 +162,69 @@ func TestBondRecoversDeadRoomWithoutRestartingXray(t *testing.T) {
 		t.Fatalf("BondRooms() = %d/%d, want 4/4", up, total)
 	}
 }
+
+func TestStartUsesBondMuxWhenPacketBondEnabled(t *testing.T) {
+	origRT := olcrtc.NewRuntime
+	origXR := startBondXray
+	origBM := startBondMux
+	t.Cleanup(func() {
+		olcrtc.NewRuntime = origRT
+		startBondXray = origXR
+		startBondMux = origBM
+	})
+
+	olcrtc.NewRuntime = func() olcrtc.Runtime { return &fakeBondRuntime{} }
+
+	var xrayStarts, bmStarts atomic.Int32
+	var gotTarget, gotUUID string
+	var gotPorts []int
+	startBondXray = func(_ context.Context, p xray.BondParams) (xrayEngine, error) {
+		xrayStarts.Add(1)
+		return &fakeBondXray{addr: "127.0.0.1:22080", user: p.SocksUser, pass: p.SocksPass, state: "running"}, nil
+	}
+	startBondMux = func(_ context.Context, p bondMuxParams) (xrayEngine, error) {
+		bmStarts.Add(1)
+		gotTarget = p.TargetAddr
+		gotUUID = p.UUID
+		gotPorts = append([]int(nil), p.RoomPorts...)
+		return &fakeBondXray{addr: "127.0.0.1:22081", user: p.SocksUser, pass: p.SocksPass, state: "running"}, nil
+	}
+
+	vless, err := links.ParseVless("vless://2b9618c0-76da-4f8d-bf1f-3270d30ff6a3@127.0.0.1:10010?security=none&encryption=none#VLESS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	line := links.OlcrtcLine{
+		Provider:  "jitsi",
+		Transport: "datachannel",
+		Room:      "r1",
+		Key:       key,
+		Label:     "PL Mamba 4x",
+		BondVless: vless,
+		BondRooms: []links.BondRoom{
+			{Provider: "jitsi", Transport: "datachannel", Room: "r1", Key: key},
+			{Provider: "jitsi", Transport: "datachannel", Room: "r2", Key: key},
+			{Provider: "jitsi", Transport: "datachannel", Room: "r3", Key: key},
+			{Provider: "jitsi", Transport: "datachannel", Room: "r4", Key: key},
+		},
+	}
+
+	bs, err := Start(context.Background(), Params{
+		Line:        line,
+		DNS:         "1.1.1.1:53",
+		PacketBond:  true,
+		SettleGrace: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = bs.Stop(2 * time.Second) }()
+
+	if bmStarts.Load() != 1 || xrayStarts.Load() != 0 {
+		t.Fatalf("bmStarts=%d xrayStarts=%d want 1/0", bmStarts.Load(), xrayStarts.Load())
+	}
+	if gotTarget != "127.0.0.1:10010" || gotUUID != "2b9618c0-76da-4f8d-bf1f-3270d30ff6a3" || len(gotPorts) != 4 {
+		t.Fatalf("target=%q uuid=%q ports=%v", gotTarget, gotUUID, gotPorts)
+	}
+}
