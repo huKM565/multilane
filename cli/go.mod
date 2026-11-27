@@ -2,7 +2,7 @@ module github.com/ghostlane-project/ghostlane/cli
 
 go 1.26.3
 
-replace github.com/openlibrecommunity/olcrtc => github.com/huKM565/olcrtc v0.0.0-20261127091203-9daa3dc6f530
+replace github.com/openlibrecommunity/olcrtc => github.com/huKM565/olcrtc v0.0.0-20261127122443-be5bd51f6da5
 
 // sing-box v1.13.14 with scripts/patches/sing-box-reality-hello.patch, the tree
 // every Ghostlane build compiles: `make singbox-src` writes it

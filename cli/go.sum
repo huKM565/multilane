@@ -174,8 +174,8 @@ github.com/hashicorp/yamux v0.1.2 h1:XtB8kyFOyHXYVFnwT5C3+Bdo8gArse7j2AQ0DA0Uey8
 github.com/hashicorp/yamux v0.1.2/go.mod h1:C+zze2n6e/7wshOZep2A70/aQU6QBRWJO/G6FT1wIns=
 github.com/hdevalence/ed25519consensus v0.2.0 h1:37ICyZqdyj0lAZ8P4D1d1id3HqbbG1N3iBb1Tb4rdcU=
 github.com/hdevalence/ed25519consensus v0.2.0/go.mod h1:w3BHWjwJbFU29IRHL1Iqkw3sus+7FctEyM4RqDxYNzo=
-github.com/huKM565/olcrtc v0.0.0-20261127091203-9daa3dc6f530 h1:OB6+H4CZmE8SY1zvnO7N5Zsi/nfWBH7NrPb2qundpNo=
-github.com/huKM565/olcrtc v0.0.0-20261127091203-9daa3dc6f530/go.mod h1:ofrl/smttagsssIxfts0Xoqx+Ff8lMASyeiHktI/meI=
+github.com/huKM565/olcrtc v0.0.0-20261127122443-be5bd51f6da5 h1:1bzsPxib8itL272yF/wtANman3XccGqiF9wTz9n2suQ=
+github.com/huKM565/olcrtc v0.0.0-20261127122443-be5bd51f6da5/go.mod h1:ofrl/smttagsssIxfts0Xoqx+Ff8lMASyeiHktI/meI=
 github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91 h1:u9i04mGE3iliBh0EFuWaKsmcwrLacqGmq1G3XoaM7gY=
 github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91/go.mod h1:qfvBmyDNp+/liLEYWRvqny/PEz9hGe2Dz833eXILSmo=
 github.com/jsimonetti/rtnetlink v1.4.0 h1:Z1BF0fRgcETPEa0Kt0MRk3yV5+kF1FWTni6KUFKrq2I=

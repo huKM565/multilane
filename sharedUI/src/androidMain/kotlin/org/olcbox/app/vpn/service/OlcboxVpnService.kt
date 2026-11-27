@@ -1472,8 +1472,8 @@ class OlcboxVpnService : VpnService() {
         rt.setUUID(bondSpec.uuid)
         rt.setRoomPortsCSV(roomPorts.joinToString(","))
         rt.setRoomCredentials(socksUsername, socksPassword)
-        rt.setStreamWindow(1L shl 20)
-        rt.setSessionWindow(12L shl 20)
+        rt.setStreamWindow(2L shl 20)
+        rt.setSessionWindow(16L shl 20)
         bondMuxRuntime = rt
         bondPacketMuxActive = true
         try {
